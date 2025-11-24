@@ -2,7 +2,7 @@ name: Daily Telegram Message
 
 on:
   schedule:
-    - cron: '*/5 * * * *'  # هر روز ساعت 9 صبح UTC اجرا میشه
+    - cron: '30 14 * * *'  # هر روز ساعت 9 صبح UTC اجرا میشه
   workflow_dispatch:
 
 jobs:
