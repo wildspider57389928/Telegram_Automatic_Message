@@ -3,7 +3,7 @@ import requests
 
 TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
-VIDEO_PATH = "VID.mp4"  # مسیر ویدئو
+VIDEO_PATH = "VID.wmv"  # مسیر ویدئو
 CAPTION = "ویدئوی انگیزشی امروز 🎬"
 
 url = f"https://api.telegram.org/bot{TOKEN}/sendVideo"
