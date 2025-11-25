@@ -1,8 +1,8 @@
 name: Daily Telegram Message
 
 on:
-#  schedule:
-#    - cron: '30 14 * * *'  # هر روز ساعت 9 صبح UTC اجرا میشه
+  # schedule:
+  #   - cron: '30 14 * * *'  # هر روز ساعت 9 صبح UTC اجرا میشه
   workflow_dispatch:
 
 jobs:
@@ -10,12 +10,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: 3.11
+
       - name: Install dependencies
-        run: pip install requests
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4 lxml argostranslate
+
       - name: Run Telegram Bot
         run: python bot.py
         env:
