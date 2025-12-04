@@ -1,8 +1,9 @@
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from flask import Flask, request
+import os
 
-TOKEN = "YOUR_BOT_TOKEN"  # توکن بات تلگرام رو اینجا بزار
+TOKEN =  os.getenv("BOT_TOKEN")# توکن بات تلگرام رو اینجا بزار
 WEBHOOK_URL = "https://telegram-automatic-message.onrender.com/"  # URL سرویس Render
 
 app = Flask(__name__)
