@@ -1,22 +1,23 @@
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+import telebot
 from flask import Flask, request
-import os
 
-TOKEN =  "8261971291:AAFR5XCC5VfvoOMwqAxWUNoLe4oG_BzOQbc" #توکن بات تلگرام رو اینجا بزار
+TOKEN = "8261971291:AAFR5XCC5VfvoOMwqAxWUNoLe4oG_BzOQbc"  # توکن بات تلگرام
 WEBHOOK_URL = "https://telegram-automatic-message.onrender.com/"  # URL سرویس Render
 
+bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("سلام! من بات شما هستم.")
+# دستور /start
+@bot.message_handler(commands=['start'])
+def start(message):
+    bot.reply_to(message, "سلام! من بات شما هستم.")
 
-application = ApplicationBuilder().token(TOKEN).build()
-application.add_handler(CommandHandler("start", start))
-
+# مسیر webhook
 @app.route("/", methods=["POST"])
 def webhook():
-    application.process_update(Update.de_json(request.get_json(force=True), application.bot))
+    json_string = request.get_data().decode('utf-8')
+    update = telebot.types.Update.de_json(json_string)
+    bot.process_new_updates([update])
     return "ok"
 
 if __name__ == "__main__":
