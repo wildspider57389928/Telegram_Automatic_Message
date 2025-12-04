@@ -1,18 +1,30 @@
 import telebot
 from flask import Flask, request
 
-TOKEN = "8261971291:AAFR5XCC5VfvoOMwqAxWUNoLe4oG_BzOQbc"  # توکن بات تلگرام
-WEBHOOK_URL = "https://telegram-automatic-message.onrender.com/"  # URL سرویس Render
+TOKEN = "8261971291:AAFR5XCC5VfvoOMwqAxWUNoLe4oG_BzOQbc"
+WEBHOOK_URL = "https://telegram-automatic-message.onrender.com/"
 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
-# دستور /start
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.reply_to(message, "سلام! من بات شما هستم.")
+    keyboard = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+    btn1 = telebot.types.KeyboardButton("🛍️ انتخاب محصول")
+    btn2 = telebot.types.KeyboardButton("📦 محصولات خریداری‌شده")
+    btn3 = telebot.types.KeyboardButton("☎️ پشتیبانی")
+    keyboard.add(btn1, btn2, btn3)
+    bot.send_message(message.chat.id, "سلام! من ربات شما هستم.", reply_markup=keyboard)
 
-# مسیر webhook
+@bot.message_handler(func=lambda m: True)
+def handle_buttons(message):
+    if message.text == "🛍️ انتخاب محصول":
+        bot.send_message(message.chat.id, "لطفاً محصول مورد نظر خود را انتخاب کنید.")
+    elif message.text == "📦 محصولات خریداری‌شده":
+        bot.send_message(message.chat.id, "لیست خریدهای شما در این بخش نمایش داده می‌شود.")
+    elif message.text == "☎️ پشتیبانی":
+        bot.send_message(message.chat.id, "برای ارتباط با پشتیبانی پیام خود را ارسال کنید.")
+
 @app.route("/", methods=["POST"])
 def webhook():
     json_string = request.get_data().decode('utf-8')
@@ -22,6 +34,5 @@ def webhook():
 
 if __name__ == "__main__":
     import requests
-    # ست کردن webhook خودکار
     requests.get(f"https://api.telegram.org/bot{TOKEN}/setWebhook?url={WEBHOOK_URL}")
     app.run(host="0.0.0.0", port=10000)
