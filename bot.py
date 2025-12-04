@@ -1,7 +1,7 @@
 import telebot
 from flask import Flask, request
 
-TOKEN = "8261971291:AAFR5XCC5VfvoOMwqAxWUNoLe4oG_BzOQbc"
+TOKEN = "8254210385:AAEXPb10qF5U2c7uXV2tvBO8SeRQZzcB4Mc"
 WEBHOOK_URL = "https://telegram-automatic-message.onrender.com/"
 
 bot = telebot.TeleBot(TOKEN)
