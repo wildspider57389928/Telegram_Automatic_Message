@@ -3,7 +3,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from flask import Flask, request
 import os
 
-TOKEN =  "8261971291:AAFR5XCC5VfvoOMwqAxWUNoLe4oG_BzOQbc#" توکن بات تلگرام رو اینجا بزار
+TOKEN =  "8261971291:AAFR5XCC5VfvoOMwqAxWUNoLe4oG_BzOQbc" توکن بات تلگرام رو اینجا بزار
 WEBHOOK_URL = "https://telegram-automatic-message.onrender.com/"  # URL سرویس Render
 
 app = Flask(__name__)
