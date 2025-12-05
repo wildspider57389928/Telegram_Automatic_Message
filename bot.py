@@ -48,4 +48,4 @@ def webhook():
 if __name__ == "__main__":
     import requests
     requests.get(f"https://api.telegram.org/bot{TOKEN}/setWebhook?url={WEBHOOK_URL}")
-    app.run(host="0.0.0.0", port=10000)import telebot
+    app.run(host="0.0.0.0", port=10000)
