@@ -1,3 +1,4 @@
+from deep_translator import GoogleTranslator
 import feedparser
 from bs4 import BeautifulSoup
 import telebot
@@ -13,6 +14,8 @@ app = Flask(__name__)
 
 ALLOWED_CATEGORIES = ["Software", "Technology & Electronics", "Video Games"]
 RSS_URL = "https://www.engadget.com/rss.xml"
+
+translator = GoogleTranslator(source='en', target='fa')
 
 # ============ توابع پردازش خبر ============
 def clean_html(raw_html):
@@ -55,7 +58,10 @@ def send_one_news(message):
     time.sleep(0.5)
     news = get_latest_news()
     if news:
-        msg = f"📢 *{news['title']}*\n\n{news['description']}"
+        # ترجمه عنوان و توضیحات
+        title_fa = translator.translate(news['title'])
+        description_fa = translator.translate(news['description'])
+        msg = f"📢 *{title_fa}*\n\n{description_fa}"
         bot.send_message(chat_id=CHANNEL_ID, text=msg, parse_mode='Markdown')
         bot.send_message(message.chat.id, "خبر به چنل ارسال شد ✅")
     else:
