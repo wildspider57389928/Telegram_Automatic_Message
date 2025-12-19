@@ -2,3 +2,4 @@ pyTelegramBotAPI
 Flask
 feedparser
 beautifulsoup4
+deep_translator
