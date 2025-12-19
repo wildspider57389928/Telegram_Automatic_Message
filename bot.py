@@ -56,10 +56,7 @@ def send_one_news(message):
     news = get_latest_news()
     if news:
         msg = f"📢 *{news['title']}*\n\n{news['description']}"
-        if news['image']:
-            bot.send_photo(chat_id=CHANNEL_ID, photo=news['image'], caption=msg, parse_mode='Markdown')
-        else:
-            bot.send_message(chat_id=CHANNEL_ID, text=msg, parse_mode='Markdown')
+        bot.send_message(chat_id=CHANNEL_ID, text=msg, parse_mode='Markdown')
         bot.send_message(message.chat.id, "خبر به چنل ارسال شد ✅")
     else:
         bot.send_message(message.chat.id, "هیچ خبری یافت نشد ❌")
