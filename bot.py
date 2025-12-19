@@ -52,7 +52,7 @@ def get_latest_news():
     return None
 
 # ============ بات تلگرام ============
-@bot.message_handler(func=lambda m: m.text == "admin/1234")
+@bot.message_handler(func=lambda m: m.text == "Send news")
 def send_one_news(message):
     bot.send_chat_action(message.chat.id, 'typing')
     time.sleep(0.5)
