@@ -2,12 +2,12 @@ from deep_translator import GoogleTranslator
 import feedparser
 from bs4 import BeautifulSoup
 import telebot
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from flask import Flask, request
-import time
 import requests
 import os
 
-TOKEN = "8261971291:AAFR5XCC5VfvoOMwqAxWUNoLe4oG_BzOQbc"
+TOKEN = "8261971291:AAFR5XCC5VfvoOMwqAxWUNoLe4oG_BzOQbc"  # توکن تست
 WEBHOOK_URL = "https://telegram-automatic-message.onrender.com/"
 CHANNEL_ID = "@MBB_Software_Group"
 
@@ -22,6 +22,9 @@ translator = GoogleTranslator(source='en', target='fa')
 IMAGES_DIR = "images"
 if not os.path.exists(IMAGES_DIR):
     os.makedirs(IMAGES_DIR)
+
+# دیکشنری برای نگهداری متن کامل اخبار
+bot_data = {}
 
 def clean_html(raw_html):
     if not raw_html:
@@ -57,7 +60,7 @@ def get_latest_news():
         title = entry.title if 'title' in entry else "No Title"
         description = clean_html(entry.summary if 'summary' in entry else "")
         description = remove_copyright(description)
-        if len(description) > 2000:
+        if len(description) > 4000:
             continue
 
         image_url = None
@@ -70,7 +73,6 @@ def get_latest_news():
 @bot.message_handler(func=lambda m: m.text == "Send news")
 def send_one_news(message):
     bot.send_chat_action(message.chat.id, 'typing')
-    time.sleep(0.5)
 
     news = get_latest_news()
     if not news:
@@ -79,19 +81,30 @@ def send_one_news(message):
 
     title_fa = translator.translate(news['title'])
     description_fa = translator.translate(news['description'])
-    caption = f"📢 *{title_fa}*\n\n{description_fa}"
+    short_caption = f"📢 {title_fa[:100]}..."  # کوتاه برای کپشن عکس
+
+    # ساخت دکمه ادامه مطلب
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton("ادامه مطلب", callback_data="show_full_news"))
 
     if news["image"]:
         image_path = os.path.join(IMAGES_DIR, "latest.jpg")
         if download_image(news["image"], image_path):
             with open(image_path, "rb") as photo:
-                bot.send_photo(chat_id=CHANNEL_ID, photo=photo, caption=caption, parse_mode="Markdown")
+                bot.send_photo(chat_id=CHANNEL_ID, photo=photo, caption=short_caption, reply_markup=markup)
         else:
-            bot.send_message(chat_id=CHANNEL_ID, text=caption, parse_mode="Markdown")
+            bot.send_message(chat_id=CHANNEL_ID, text=short_caption, reply_markup=markup)
     else:
-        bot.send_message(chat_id=CHANNEL_ID, text=caption, parse_mode="Markdown")
+        bot.send_message(chat_id=CHANNEL_ID, text=short_caption, reply_markup=markup)
 
+    bot_data[message.chat.id] = description_fa
     bot.send_message(message.chat.id, "خبر به چنل ارسال شد ✅")
+
+# مدیریت دکمه ادامه مطلب
+@bot.callback_query_handler(func=lambda call: call.data == "show_full_news")
+def callback_full_news(call):
+    full_text = bot_data.get(call.message.chat.id, "متاسفانه خبری موجود نیست ❌")
+    bot.send_message(call.message.chat.id, full_text)
 
 @app.route("/", methods=["POST"])
 def webhook():
@@ -101,6 +114,6 @@ def webhook():
     return "ok"
 
 if __name__ == "__main__":
-    import requests
     requests.get(f"https://api.telegram.org/bot{TOKEN}/setWebhook?url={WEBHOOK_URL}")
-    app.run(host="0.0.0.0", port=10000)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
