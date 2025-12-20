@@ -6,7 +6,7 @@ from flask import Flask, request
 import requests
 import os
 
-# توکن تست
+# توکن و اطلاعات کانال
 TOKEN = "8261971291:AAFR5XCC5VfvoOMwqAxWUNoLe4oG_BzOQbc"
 WEBHOOK_URL = "https://telegram-automatic-message.onrender.com/"
 CHANNEL_ID = "@MBB_Software_Group"
@@ -23,6 +23,8 @@ IMAGES_DIR = "images"
 if not os.path.exists(IMAGES_DIR):
     os.makedirs(IMAGES_DIR)
 
+# دیکشنری برای ذخیره ۵ خبر آخر برای هر کاربر
+user_news_cache = {}
 
 def clean_html(raw_html):
     if not raw_html:
@@ -48,8 +50,9 @@ def download_image(url, filename):
         pass
     return False
 
-def get_latest_news():
+def get_latest_news(limit=5):
     feed = feedparser.parse(RSS_URL)
+    news_list = []
     for entry in feed.entries:
         categories = [cat.term if hasattr(cat, 'term') else cat for cat in entry.get('tags', [])]
         if not any(cat in ALLOWED_CATEGORIES for cat in categories):
@@ -65,18 +68,40 @@ def get_latest_news():
         if 'media_content' in entry and len(entry.media_content) > 0:
             image_url = entry.media_content[0].get("url")
 
-        return {"title": title, "description": description, "image": image_url}
-    return None
+        news_list.append({"title": title, "description": description, "image": image_url})
+        if len(news_list) >= limit:
+            break
+    return news_list
 
+# مرحله اول: نمایش ۵ عنوان آخر
 @bot.message_handler(func=lambda m: m.text == "Send news")
-def send_one_news(message):
-    bot.send_chat_action(message.chat.id, 'typing')
-
-    news = get_latest_news()
-    if not news:
+def send_news_list(message):
+    news_list = get_latest_news()
+    if not news_list:
         bot.send_message(message.chat.id, "هیچ خبری یافت نشد ❌")
         return
 
+    # ذخیره خبرها برای کاربر
+    user_news_cache[message.chat.id] = news_list
+
+    # ارسال عناوین
+    text = "📢 ۵ خبر آخر:\n\n"
+    for idx, news in enumerate(news_list, start=1):
+        text += f"{idx}️⃣ {news['title']}\n"
+    text += "\nلطفاً عدد خبر مورد نظر را ارسال کنید."
+    bot.send_message(message.chat.id, text)
+
+# مرحله دوم: انتخاب خبر توسط کاربر
+@bot.message_handler(func=lambda m: m.text.isdigit() and int(m.text) in range(1,6))
+def send_selected_news(message):
+    idx = int(message.text) - 1
+    news_list = user_news_cache.get(message.chat.id)
+
+    if not news_list or idx >= len(news_list):
+        bot.send_message(message.chat.id, "خبر مورد نظر یافت نشد ❌")
+        return
+
+    news = news_list[idx]
     title_fa = translator.translate(news['title'])
     description_fa = translator.translate(news['description'])
     short_caption = f"📢 {title_fa[:100]}..."  # کپشن کوتاه برای عکس
