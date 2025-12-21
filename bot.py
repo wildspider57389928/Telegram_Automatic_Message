@@ -136,8 +136,7 @@ def send_news_list(message):
         )
 
         preview_text = news["description"][:200] + "..." if len(news["description"]) > 200 else news["description"]
-        text += preview_text
-        text += footer_text
+        text += preview_text  # footer اینجا اضافه نمیشه
 
         keyboard = InlineKeyboardMarkup()
         keyboard.add(InlineKeyboardButton("📤 Send to Channel", callback_data=f"send_{idx}"))
@@ -155,17 +154,33 @@ def send_selected_news(call: CallbackQuery):
     news = news_list[idx]
     title_fa = translator.translate(news["title"])
     description_fa = translator.translate(news["description"])
-    short_caption = f"📢 {title_fa[:100]}..."
+
+    # ساخت متن اضافی شامل تاریخ، دسته‌بندی‌ها، ناشر و نویسنده
+    category_lines = "\n- ".join([c for c in news["categories"] if not any(x in c.lower() for x in ["region|", "language|", "provider_name", "author_name"])])
+    category_text = f"- {category_lines}" if category_lines else "No categories"
+
+    meta_text = (
+        f"🗓 {news['pub_date']}\n"
+        f"📂 Categories:\n{category_text}\n"
+        f"🏷 Publisher: {news['publisher']}\n"
+        f"✍ Author: {news['author']}\n"
+        f"🌍 Region: {news['region']}\n"
+        f"🈸 Language: {news['language']}\n\n"
+    )
+
+    full_text = f"{meta_text}{description_fa}\n\n{footer_text}"
 
     if news["image"]:
         image_path = os.path.join(IMAGES_DIR, "latest.jpg")
         download_image(news["image"], image_path)
         with open(image_path, "rb") as photo:
-            bot.send_photo(chat_id=CHANNEL_ID, photo=photo, caption=short_caption)
-    else:
-        bot.send_message(chat_id=CHANNEL_ID, text=short_caption)
+            # پیام اول: فقط عکس و عنوان
+            bot.send_photo(chat_id=CHANNEL_ID, photo=photo, caption=f"📢 {title_fa}")
 
-    bot.send_message(chat_id=CHANNEL_ID, text=description_fa + footer_text)
+    # پیام دوم: متن خبر + متا + footer، تقسیم شده در صورت طولانی بودن
+    for i in range(0, len(full_text), 2000):
+        bot.send_message(chat_id=CHANNEL_ID, text=full_text[i:i+2000])
+
     bot.answer_callback_query(call.id, "News sent to channel ✅")
 
 @app.route("/", methods=["POST"])
