@@ -63,12 +63,10 @@ def get_latest_news(limit=10):
 
         title = entry.title if "title" in entry else "No Title"
 
-        if "content" in entry and len(entry.content) > 0:
-            raw_html = entry.content[0].value
-        else:
-            raw_html = entry.summary if "summary" in entry else ""
-        description = clean_html(raw_html)
+        description = clean_html(entry.summary if "summary" in entry else "")
         description = remove_copyright(description)
+        if len(description) > 4000:
+            continue  # رد کردن خبرهای خیلی طولانی
         description = description[:3900]
 
         pub_date = entry.get("published", "Unknown")
