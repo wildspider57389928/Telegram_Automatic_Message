@@ -52,20 +52,31 @@ def get_latest_news(limit=10):
     feed = feedparser.parse(RSS_URL)
     news_list = []
     for entry in feed.entries:
+        # Categories
         categories = [cat.term if hasattr(cat, "term") else str(cat) for cat in entry.get("tags", [])]
+
+        # Title
         title = entry.title if "title" in entry else "No Title"
 
+        # Description
         if "content" in entry and len(entry.content) > 0:
             raw_html = entry.content[0].value
         else:
             raw_html = entry.summary if "summary" in entry else ""
-
         description = clean_html(raw_html)
         description = remove_copyright(description)
         description = description[:3900]
 
-        pub_date = entry.get("published", "نامشخص")
+        # pubDate
+        pub_date = entry.get("published", "Unknown")
 
+        # Metadata
+        publisher = entry.get("dc_publisher", "Unknown")
+        author = entry.get("dc_creator", "Unknown")
+        region = next((c for c in categories if c.lower().startswith("region|")), "Unknown").replace("region|", "")
+        language = next((c for c in categories if c.lower().startswith("language|")), "Unknown").replace("language|", "")
+
+        # Image
         image_url = None
         if "media_content" in entry:
             for media in entry.media_content:
@@ -78,7 +89,11 @@ def get_latest_news(limit=10):
             "description": description,
             "image": image_url,
             "categories": categories,
-            "pub_date": pub_date
+            "pub_date": pub_date,
+            "publisher": publisher,
+            "author": author,
+            "region": region,
+            "language": language
         })
 
         if len(news_list) >= limit:
@@ -90,19 +105,33 @@ def get_latest_news(limit=10):
 def send_news_list(message):
     news_list = get_latest_news()
     if not news_list:
-        bot.send_message(message.chat.id, "هیچ خبری یافت نشد ❌")
+        bot.send_message(message.chat.id, "No news found ❌")
         return
 
     user_news_cache[message.chat.id] = news_list
 
     for idx, news in enumerate(news_list):
-        category_text = ", ".join(news["categories"]) if news["categories"] else "بدون دسته‌بندی"
-        preview_text = news["description"][:200] + "..." if len(news["description"]) > 200 else news["description"]
+        # Categories as separate lines
+        category_lines = "\n- ".join([c for c in news["categories"] if not any(x in c.lower() for x in ["region|", "language|", "provider_name", "author_name"])])
+        category_text = f"- {category_lines}" if category_lines else "No categories"
 
-        text = f"📢 {news['title']}\n🗓 {news['pub_date']}\n📂 دسته‌بندی: {category_text}\n\n{preview_text}"
+        # Suggested message text
+        text = (
+            f"📢 {news['title']}\n"
+            f"🗓 {news['pub_date']}\n\n"
+            f"📂 Categories:\n{category_text}\n\n"
+            f"🏷 Publisher: {news['publisher']}\n"
+            f"✍ Author: {news['author']}\n"
+            f"🌍 Region: {news['region']}\n"
+            f"🈸 Language: {news['language']}\n\n"
+        )
+
+        # Preview text for description
+        preview_text = news["description"][:200] + "..." if len(news["description"]) > 200 else news["description"]
+        text += preview_text
 
         keyboard = InlineKeyboardMarkup()
-        keyboard.add(InlineKeyboardButton("📤 ارسال به کانال", callback_data=f"send_{idx}"))
+        keyboard.add(InlineKeyboardButton("📤 Send to Channel", callback_data=f"send_{idx}"))
         bot.send_message(message.chat.id, text, reply_markup=keyboard)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("send_"))
@@ -111,7 +140,7 @@ def send_selected_news(call: CallbackQuery):
     news_list = user_news_cache.get(call.message.chat.id)
 
     if not news_list or idx >= len(news_list):
-        bot.answer_callback_query(call.id, "خبر مورد نظر یافت نشد ❌")
+        bot.answer_callback_query(call.id, "News not found ❌")
         return
 
     news = news_list[idx]
@@ -128,7 +157,7 @@ def send_selected_news(call: CallbackQuery):
         bot.send_message(chat_id=CHANNEL_ID, text=short_caption)
 
     bot.send_message(chat_id=CHANNEL_ID, text=description_fa)
-    bot.answer_callback_query(call.id, "خبر به چنل ارسال شد ✅")
+    bot.answer_callback_query(call.id, "News sent to channel ✅")
 
 @app.route("/", methods=["POST"])
 def webhook():
