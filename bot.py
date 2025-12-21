@@ -7,7 +7,6 @@ from flask import Flask, request
 import requests
 import os
 
-# توکن و اطلاعات کانال
 TOKEN = "8261971291:AAFR5XCC5VfvoOMwqAxWUNoLe4oG_BzOQbc"
 WEBHOOK_URL = "https://telegram-automatic-message.onrender.com/"
 CHANNEL_ID = "@MBB_Software_Group"
@@ -17,13 +16,12 @@ app = Flask(__name__)
 
 RSS_URL = "https://www.engadget.com/rss.xml"
 
-translator = GoogleTranslator(source='en', target='fa')
+translator = GoogleTranslator(source="en", target="fa")
 
 IMAGES_DIR = "images"
 if not os.path.exists(IMAGES_DIR):
     os.makedirs(IMAGES_DIR)
 
-# ذخیره ۱۰ خبر آخر برای هر کاربر
 user_news_cache = {}
 
 def clean_html(raw_html):
@@ -54,26 +52,40 @@ def get_latest_news(limit=10):
     feed = feedparser.parse(RSS_URL)
     news_list = []
     for entry in feed.entries:
-        categories = [cat.term if hasattr(cat, 'term') else str(cat) for cat in entry.get('tags', [])]
-        title = entry.title if 'title' in entry else "No Title"
-        description = clean_html(entry.summary if 'summary' in entry else "")
+        categories = [cat.term if hasattr(cat, "term") else str(cat) for cat in entry.get("tags", [])]
+        title = entry.title if "title" in entry else "No Title"
+
+        if "content" in entry and len(entry.content) > 0:
+            raw_html = entry.content[0].value
+        else:
+            raw_html = entry.summary if "summary" in entry else ""
+
+        description = clean_html(raw_html)
         description = remove_copyright(description)
-        if len(description) > 4000:
-            continue
+        description = description[:3900]
+
+        pub_date = entry.get("published", "نامشخص")
+
         image_url = None
-        if 'media_content' in entry and len(entry.media_content) > 0:
-            image_url = entry.media_content[0].get("url")
+        if "media_content" in entry:
+            for media in entry.media_content:
+                if media.get("medium") == "image" and "url" in media:
+                    image_url = media["url"]
+                    break
+
         news_list.append({
             "title": title,
             "description": description,
             "image": image_url,
-            "categories": categories
+            "categories": categories,
+            "pub_date": pub_date
         })
+
         if len(news_list) >= limit:
             break
+
     return news_list
 
-# مرحله اول: نمایش ۱۰ عنوان آخر با پیش‌نمایش و دکمه
 @bot.message_handler(func=lambda m: m.text == "Send news")
 def send_news_list(message):
     news_list = get_latest_news()
@@ -84,15 +96,15 @@ def send_news_list(message):
     user_news_cache[message.chat.id] = news_list
 
     for idx, news in enumerate(news_list):
-        category_text = ", ".join(news['categories']) if news['categories'] else "بدون دسته‌بندی"
-        preview_text = news['description'][:200] + "..." if len(news['description']) > 200 else news['description']
-        text = f"📢 {news['title']}\n📂 دسته‌بندی: {category_text}\n\n{preview_text}"
+        category_text = ", ".join(news["categories"]) if news["categories"] else "بدون دسته‌بندی"
+        preview_text = news["description"][:200] + "..." if len(news["description"]) > 200 else news["description"]
+
+        text = f"📢 {news['title']}\n🗓 {news['pub_date']}\n📂 دسته‌بندی: {category_text}\n\n{preview_text}"
 
         keyboard = InlineKeyboardMarkup()
         keyboard.add(InlineKeyboardButton("📤 ارسال به کانال", callback_data=f"send_{idx}"))
         bot.send_message(message.chat.id, text, reply_markup=keyboard)
 
-# مرحله دوم: وقتی کاربر روی دکمه کلیک می‌کنه
 @bot.callback_query_handler(func=lambda call: call.data.startswith("send_"))
 def send_selected_news(call: CallbackQuery):
     idx = int(call.data.split("_")[1])
@@ -103,8 +115,8 @@ def send_selected_news(call: CallbackQuery):
         return
 
     news = news_list[idx]
-    title_fa = translator.translate(news['title'])
-    description_fa = translator.translate(news['description'])
+    title_fa = translator.translate(news["title"])
+    description_fa = translator.translate(news["description"])
     short_caption = f"📢 {title_fa[:100]}..."
 
     if news["image"]:
@@ -120,7 +132,7 @@ def send_selected_news(call: CallbackQuery):
 
 @app.route("/", methods=["POST"])
 def webhook():
-    json_string = request.get_data().decode('utf-8')
+    json_string = request.get_data().decode("utf-8")
     update = telebot.types.Update.de_json(json_string)
     bot.process_new_updates([update])
     return "ok"
