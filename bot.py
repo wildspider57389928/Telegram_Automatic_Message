@@ -48,21 +48,11 @@ def download_image(url, filename):
         pass
     return False
 
-def extract_metadata(categories):
-    provider = next((c.split("|")[1] for c in categories if c.lower().startswith("provider_name|")), "Unknown")
-    author = next((c.split("|")[1] for c in categories if c.lower().startswith("author_name|")), "Unknown")
-    region = next((c.split("|")[1] for c in categories if c.lower().startswith("region|")), "Unknown")
-    language = next((c.split("|")[1] for c in categories if c.lower().startswith("language|")), "Unknown")
-    return provider, author, region, language
-
 def get_latest_news(limit=10):
     feed = feedparser.parse(RSS_URL)
     news_list = []
-    for entry in feed.entries:
-        categories = [cat.term if hasattr(cat, "term") else str(cat) for cat in entry.get("tags", [])]
-
-        title = entry.title if "title" in entry else "No Title"
-
+    for entry in feed.entries[:limit]:
+        # گرفتن متن خبر
         if "content" in entry and len(entry.content) > 0:
             raw_html = entry.content[0].value
         else:
@@ -70,8 +60,7 @@ def get_latest_news(limit=10):
         description = clean_html(raw_html)
         description = remove_copyright(description)
 
-        pub_date = entry.get("published", "Unknown")
-
+        # گرفتن عکس
         image_url = None
         if "media_content" in entry:
             for media in entry.media_content:
@@ -79,36 +68,18 @@ def get_latest_news(limit=10):
                     image_url = media["url"]
                     break
 
-        provider, author, region, language = extract_metadata(categories)
-
         news_list.append({
-            "title": title,
+            "title": entry.title,
             "description": description,
-            "image": image_url,
-            "categories": categories,
-            "pub_date": pub_date,
-            "publisher": provider,
-            "author": author,
-            "region": region,
-            "language": language,
-            "link": entry.link
+            "image": image_url
         })
-
-        if len(news_list) >= limit:
-            break
-
     return news_list
 
 footer_text = (
-    "\n\n📌 برای دنبال کردن آخرین اخبار و مطالب دنیای تکنولوژی، کانال‌های ما را مشاهده کنید:\n\n"
-    "📺 آپارات:\n"
-    "https://aparat.com/MBB_Software_Group\n\n"
-    "💬 تلگرام:\n"
-    "https://t.me/MBB_Software_Group\n"
-    "https://t.me/hooshmalinovin\n\n"
-    "🧮 محاسبه‌گر جامع مالی:\n"
-    "ابزاری قدرتمند برای مدیریت و محاسبات مالی شخصی و حرفه‌ای شما\n"
-    "https://myket.ir/app/org.MBB.ComprehensiveFinancialCalculator"
+    "\n\n📌 برای دنبال کردن آخرین اخبار و مطالب دنیای تکنولوژی، کانال‌های ما را مشاهده کنید:\n"
+    "📺 https://aparat.com/MBB_Software_Group\n"
+    "💬 https://t.me/MBB_Software_Group\n"
+    "🧮 https://myket.ir/app/org.MBB.ComprehensiveFinancialCalculator"
 )
 
 @bot.message_handler(func=lambda m: m.text == "Send news")
@@ -121,22 +92,8 @@ def send_news_list(message):
     user_news_cache[message.chat.id] = news_list
 
     for idx, news in enumerate(news_list):
-        category_lines = "\n- ".join([c for c in news["categories"] if not any(x in c.lower() for x in ["region|", "language|", "provider_name", "author_name"])])
-        category_text = f"- {category_lines}" if category_lines else "No categories"
-
-        text = (
-            f"📢 {news['title']}\n"
-            f"🗓 {news['pub_date']}\n\n"
-            f"📂 Categories:\n{category_text}\n\n"
-            f"🏷 Publisher: {news['publisher']}\n"
-            f"✍ Author: {news['author']}\n"
-            f"🌍 Region: {news['region']}\n"
-            f"🈸 Language: {news['language']}\n\n"
-        )
-
-        preview_text = news["description"][:200] + "..." if len(news["description"]) > 200 else news["description"]
-        text += preview_text  # footer اینجا اضافه نمیشه
-
+        preview = news["description"][:200] + "..." if len(news["description"]) > 200 else news["description"]
+        text = f"📢 {news['title']}\n\n{preview}"
         keyboard = InlineKeyboardMarkup()
         keyboard.add(InlineKeyboardButton("📤 Send to Channel", callback_data=f"send_{idx}"))
         bot.send_message(message.chat.id, text, reply_markup=keyboard)
@@ -152,9 +109,8 @@ def send_selected_news(call: CallbackQuery):
 
     news = news_list[idx]
     title_fa = translator.translate(news["title"])
-    description_fa = translator.translate(news["description"])  # متن کامل
-
-    full_text = f"{description_fa}\n\n{footer_text}"  # فقط متن خبر + footer
+    description_fa = translator.translate(news["description"])
+    full_text = f"{description_fa}\n\n{footer_text}"
 
     # پیام اول: عکس + عنوان
     if news["image"]:
