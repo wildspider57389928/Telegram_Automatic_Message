@@ -135,7 +135,6 @@ def send_news_list(message):
 
         preview_text = news["description"][:200] + "..." if len(news["description"]) > 200 else news["description"]
         text += preview_text
-        text += footer_text
 
         keyboard = InlineKeyboardMarkup()
         keyboard.add(InlineKeyboardButton("📤 Send to Channel", callback_data=f"send_{idx}"))
