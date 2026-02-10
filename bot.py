@@ -100,8 +100,6 @@ def get_latest_news(limit=10):
 
 footer_text = (
     "\n\n📌 برای دنبال کردن آخرین اخبار و مطالب دنیای تکنولوژی، کانال‌های ما را مشاهده کنید:\n\n"
-    "📺 آپارات:\n"
-    "https://aparat.com/MBB_Software_Group\n\n"
     "💬 تلگرام:\n"
     "https://t.me/MBB_Software_Group\n"
     "https://t.me/hooshmalinovin\n\n"
