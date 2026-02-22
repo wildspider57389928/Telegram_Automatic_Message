@@ -149,6 +149,12 @@ def send_selected_news(call: CallbackQuery):
     title_fa = translator.translate(news["title"])
     analysis_text = analyze_news_with_gemini(news["description"])
 
+    # اگر تحلیل خطا داشت → فقط به خود کاربر ارسال شود
+    if not analysis_text or "خطا" in analysis_text:
+        bot.send_message(call.message.chat.id, f"❌ Error analyzing news:\n{analysis_text}")
+        bot.answer_callback_query(call.id, "Analysis failed ❌")
+        return
+
     caption = f"📢 {title_fa}"
 
     if news["image"]:
@@ -161,7 +167,6 @@ def send_selected_news(call: CallbackQuery):
 
     bot.send_message(chat_id=CHANNEL_ID, text=analysis_text + footer_text)
     bot.answer_callback_query(call.id, "News sent to channel ✅")
-
 @app.route("/", methods=["POST"])
 def webhook():
     json_string = request.get_data().decode("utf-8")
