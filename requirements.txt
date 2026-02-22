@@ -3,3 +3,4 @@ Flask
 feedparser
 beautifulsoup4
 deep_translator
+google-genai
