@@ -6,10 +6,12 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQu
 from flask import Flask, request
 import requests
 import os
+from google import genai
 
 TOKEN = "8261971291:AAFR5XCC5VfvoOMwqAxWUNoLe4oG_BzOQbc"
 WEBHOOK_URL = "https://telegram-automatic-message.onrender.com/"
 CHANNEL_ID = "@MBB_Software_Group"
+GEMINI_API_KEY = "AIzaSyCM4bn80KQGv79gYR3SsQtHAB_8WLoiUQ0"
 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
@@ -17,6 +19,8 @@ app = Flask(__name__)
 RSS_URL = "https://www.engadget.com/rss.xml"
 
 translator = GoogleTranslator(source="en", target="fa")
+
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 IMAGES_DIR = "images"
 if not os.path.exists(IMAGES_DIR):
@@ -48,27 +52,40 @@ def download_image(url, filename):
         pass
     return False
 
-def extract_metadata(categories):
-    provider = next((c.split("|")[1] for c in categories if c.lower().startswith("provider_name|")), "Unknown")
-    author = next((c.split("|")[1] for c in categories if c.lower().startswith("author_name|")), "Unknown")
-    region = next((c.split("|")[1] for c in categories if c.lower().startswith("region|")), "Unknown")
-    language = next((c.split("|")[1] for c in categories if c.lower().startswith("language|")), "Unknown")
-    return provider, author, region, language
+def analyze_news_with_gemini(description):
+    prompt = f"""
+تو یک نویسنده حرفه‌ای اخبار فناوری برای کانال تلگرام هستی.
+
+متن زیر را:
+- به فارسی روان بازنویسی کن
+- در یک پاراگراف کوتاه بنویس
+- کامل و قابل فهم باشد
+- لحن جذاب و مخصوص تلگرام داشته باشد
+- فقط متن نهایی را بنویس
+
+متن خبر:
+{description}
+"""
+    try:
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt
+        )
+        return response.text.strip()
+    except Exception as e:
+        print(e)
+        return "خطا در تحلیل خبر"
 
 def get_latest_news(limit=10):
     feed = feedparser.parse(RSS_URL)
     news_list = []
     for entry in feed.entries:
-        categories = [cat.term if hasattr(cat, "term") else str(cat) for cat in entry.get("tags", [])]
-
         title = entry.title if "title" in entry else "No Title"
-
         description = clean_html(entry.summary if "summary" in entry else "")
         description = remove_copyright(description)
         if len(description) > 4000:
-            continue  # رد کردن خبرهای خیلی طولانی
+            continue
         description = description[:3900]
-
         pub_date = entry.get("published", "Unknown")
 
         image_url = None
@@ -78,18 +95,11 @@ def get_latest_news(limit=10):
                     image_url = media["url"]
                     break
 
-        provider, author, region, language = extract_metadata(categories)
-
         news_list.append({
             "title": title,
             "description": description,
             "image": image_url,
-            "categories": categories,
             "pub_date": pub_date,
-            "publisher": provider,
-            "author": author,
-            "region": region,
-            "language": language,
             "link": entry.link
         })
 
@@ -98,15 +108,7 @@ def get_latest_news(limit=10):
 
     return news_list
 
-footer_text = (
-    "\n\n📌 برای دنبال کردن آخرین اخبار و مطالب دنیای تکنولوژی، کانال‌های ما را مشاهده کنید:\n\n"
-    "💬 تلگرام:\n"
-    "https://t.me/MBB_Software_Group\n"
-    "https://t.me/hooshmalinovin\n\n"
-    "🧮 محاسبه‌گر جامع مالی:\n"
-    "ابزاری قدرتمند برای مدیریت و محاسبات مالی شخصی و حرفه‌ای شما\n"
-    "https://myket.ir/app/org.MBB.ComprehensiveFinancialCalculator"
-)
+footer_text = "\n\n📌 برای دنبال کردن آخرین اخبار تکنولوژی، کانال را دنبال کنید."
 
 @bot.message_handler(func=lambda m: m.text == "Send news")
 def send_news_list(message):
@@ -118,22 +120,8 @@ def send_news_list(message):
     user_news_cache[message.chat.id] = news_list
 
     for idx, news in enumerate(news_list):
-        category_lines = "\n- ".join([c for c in news["categories"] if not any(x in c.lower() for x in ["region|", "language|", "provider_name", "author_name"])])
-        category_text = f"- {category_lines}" if category_lines else "No categories"
-
-        text = (
-            f"📢 {news['title']}\n"
-            f"🗓 {news['pub_date']}\n\n"
-            f"📂 Categories:\n{category_text}\n\n"
-            f"🏷 Publisher: {news['publisher']}\n"
-            f"✍ Author: {news['author']}\n"
-            f"🌍 Region: {news['region']}\n"
-            f"🈸 Language: {news['language']}\n\n"
-        )
-
-        preview_text = news["description"][:200] + "..." if len(news["description"]) > 200 else news["description"]
-        text += preview_text
-
+        preview = news["description"][:200] + "..."
+        text = f"📢 {news['title']}\n🗓 {news['pub_date']}\n\n{preview}"
         keyboard = InlineKeyboardMarkup()
         keyboard.add(InlineKeyboardButton("📤 Send to Channel", callback_data=f"send_{idx}"))
         bot.send_message(message.chat.id, text, reply_markup=keyboard)
@@ -148,19 +136,21 @@ def send_selected_news(call: CallbackQuery):
         return
 
     news = news_list[idx]
+
     title_fa = translator.translate(news["title"])
-    description_fa = translator.translate(news["description"])
-    short_caption = f"📢 {title_fa[:100]}..."
+    analysis_text = analyze_news_with_gemini(news["description"])
+
+    caption = f"📢 {title_fa[:100]}..."
 
     if news["image"]:
         image_path = os.path.join(IMAGES_DIR, "latest.jpg")
         download_image(news["image"], image_path)
         with open(image_path, "rb") as photo:
-            bot.send_photo(chat_id=CHANNEL_ID, photo=photo, caption=short_caption)
+            bot.send_photo(chat_id=CHANNEL_ID, photo=photo, caption=caption)
     else:
-        bot.send_message(chat_id=CHANNEL_ID, text=short_caption)
+        bot.send_message(chat_id=CHANNEL_ID, text=caption)
 
-    bot.send_message(chat_id=CHANNEL_ID, text=description_fa + footer_text)
+    bot.send_message(chat_id=CHANNEL_ID, text=analysis_text + footer_text)
     bot.answer_callback_query(call.id, "News sent to channel ✅")
 
 @app.route("/", methods=["POST"])
