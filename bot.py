@@ -8,9 +8,9 @@ import requests
 import os
 from google import genai
 
-TOKEN = os.getenv("TELEGRAM_TOKEN")
+TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = "https://telegram-automatic-message.onrender.com/"
-CHANNEL_ID = "@MBB_Software_Group"
+CHANNEL_ID = os.getenv("CHANNEL_ID")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 bot = telebot.TeleBot(TOKEN)
