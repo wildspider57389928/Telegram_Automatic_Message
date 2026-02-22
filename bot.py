@@ -73,8 +73,7 @@ def analyze_news_with_gemini(description):
         )
         return response.text.strip()
     except Exception as e:
-        print(e)
-        return "خطا در تحلیل خبر"
+        return f"خطا در تحلیل خبر:{e}"
 
 def get_latest_news(limit=10):
     feed = feedparser.parse(RSS_URL)
