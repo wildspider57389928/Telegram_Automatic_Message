@@ -8,10 +8,10 @@ import requests
 import os
 from google import genai
 
-TOKEN = "8261971291:AAFR5XCC5VfvoOMwqAxWUNoLe4oG_BzOQbc"
+TOKEN = os.getenv("TELEGRAM_TOKEN")
 WEBHOOK_URL = "https://telegram-automatic-message.onrender.com/"
 CHANNEL_ID = "@MBB_Software_Group"
-GEMINI_API_KEY = "AIzaSyCM4bn80KQGv79gYR3SsQtHAB_8WLoiUQ0"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
