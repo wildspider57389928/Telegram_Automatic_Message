@@ -108,8 +108,17 @@ def get_latest_news(limit=10):
 
     return news_list
 
-footer_text = "\n\n📌 برای دنبال کردن آخرین اخبار تکنولوژی، کانال را دنبال کنید."
+footer_text = """
+\n📌 برای دنبال کردن آخرین اخبار و مطالب دنیای تکنولوژی، کانال‌های ما را مشاهده کنید:
 
+💬 تلگرام:
+https://t.me/MBB_Software_Group
+https://t.me/hooshmalinovin
+
+🧮 محاسبه‌گر جامع مالی:
+ابزاری قدرتمند برای مدیریت و محاسبات مالی شخصی و حرفه‌ای شما
+https://myket.ir/app/org.MBB.ComprehensiveFinancialCalculator
+"""
 @bot.message_handler(func=lambda m: m.text == "Send news")
 def send_news_list(message):
     news_list = get_latest_news()
@@ -140,7 +149,7 @@ def send_selected_news(call: CallbackQuery):
     title_fa = translator.translate(news["title"])
     analysis_text = analyze_news_with_gemini(news["description"])
 
-    caption = f"📢 {title_fa[:100]}..."
+    caption = f"📢 {title_fa}"
 
     if news["image"]:
         image_path = os.path.join(IMAGES_DIR, "latest.jpg")
