@@ -133,22 +133,18 @@ def send_news_list(message):
         bot.send_message(message.chat.id,text,reply_markup=keyboard)
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower()=="send bale")
-def send_first_news_to_bale(message):
+def send_bale_list(message):
     news_list=get_latest_news()
     if not news_list:
         bot.send_message(message.chat.id,"No news found ❌")
         return
-    news=news_list[0]
-    title_fa=translator.translate(news["title"])
-    analysis_text=analyze_news_with_gemini(news["description"])
-    caption=f"📢 {title_fa}"
-    full_text=caption+"\n\n"+analysis_text+footer_text
-    image_path=None
-    if news["image"]:
-        image_path=os.path.join(IMAGES_DIR,"latest.jpg")
-        download_image(news["image"],image_path)
-    send_to_bale(full_text,image_path)
-    bot.send_message(message.chat.id,"ارسال شد به بله ✅")
+    user_news_cache[message.chat.id]=news_list
+    for idx,news in enumerate(news_list):
+        preview=news["description"][:200]+"..."
+        text=f"📢 {news['title']}\n🗓 {news['pub_date']}\n\n{preview}"
+        keyboard=InlineKeyboardMarkup()
+        keyboard.add(InlineKeyboardButton("📤 Send to Bale",callback_data=f"bale_{idx}"))
+        bot.send_message(message.chat.id,text,reply_markup=keyboard)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("send_"))
 def send_selected_news(call: CallbackQuery):
@@ -160,10 +156,6 @@ def send_selected_news(call: CallbackQuery):
     news=news_list[idx]
     title_fa=translator.translate(news["title"])
     analysis_text=analyze_news_with_gemini(news["description"])
-    if not analysis_text or "خطا" in analysis_text:
-        bot.send_message(call.message.chat.id,f"❌ Error analyzing news:\n{analysis_text}")
-        bot.answer_callback_query(call.id,"Analysis failed ❌")
-        return
     caption=f"📢 {title_fa}"
     if news["image"]:
         image_path=os.path.join(IMAGES_DIR,"latest.jpg")
@@ -174,6 +166,25 @@ def send_selected_news(call: CallbackQuery):
         bot.send_message(chat_id=CHANNEL_ID,text=caption)
     bot.send_message(chat_id=CHANNEL_ID,text=analysis_text+footer_text)
     bot.answer_callback_query(call.id,"News sent to channel ✅")
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("bale_"))
+def send_selected_news_bale(call: CallbackQuery):
+    idx=int(call.data.split("_")[1])
+    news_list=user_news_cache.get(call.message.chat.id)
+    if not news_list or idx>=len(news_list):
+        bot.answer_callback_query(call.id,"News not found ❌")
+        return
+    news=news_list[idx]
+    title_fa=translator.translate(news["title"])
+    analysis_text=analyze_news_with_gemini(news["description"])
+    caption=f"📢 {title_fa}"
+    full_text=caption+"\n\n"+analysis_text+footer_text
+    image_path=None
+    if news["image"]:
+        image_path=os.path.join(IMAGES_DIR,"latest.jpg")
+        download_image(news["image"],image_path)
+    send_to_bale(full_text,image_path)
+    bot.answer_callback_query(call.id,"News sent to Bale ✅")
 
 @app.route("/",methods=["POST"])
 def webhook():
