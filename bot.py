@@ -13,13 +13,15 @@ WEBHOOK_URL = "https://telegram-automatic-message.onrender.com/"
 CHANNEL_ID = os.getenv("CHANNEL_ID")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
+BALE_TOKEN = os.getenv("BALE_TOKEN")
+BALE_CHAT_ID = os.getenv("BALE_CHAT_ID")
+
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
 RSS_URL = "https://www.engadget.com/rss.xml"
 
 translator = GoogleTranslator(source="en", target="fa")
-
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 IMAGES_DIR = "images"
@@ -67,10 +69,7 @@ def analyze_news_with_gemini(description):
 {description}
 """
     try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt
-        )
+        response = client.models.generate_content(model="gemini-2.5-flash",contents=prompt)
         return response.text.strip()
     except Exception as e:
         return f"خطا در تحلیل خبر:{e}"
@@ -94,18 +93,18 @@ def get_latest_news(limit=10):
                     image_url = media["url"]
                     break
 
-        news_list.append({
-            "title": title,
-            "description": description,
-            "image": image_url,
-            "pub_date": pub_date,
-            "link": entry.link
-        })
-
+        news_list.append({"title": title,"description": description,"image": image_url,"pub_date": pub_date,"link": entry.link})
         if len(news_list) >= limit:
             break
-
     return news_list
+
+def send_to_bale(text,image_path=None):
+    url=f"https://tapi.bale.ai/bot{BALE_TOKEN}/sendMessage"
+    requests.post(url,data={"chat_id":BALE_CHAT_ID,"text":text})
+    if image_path:
+        url=f"https://tapi.bale.ai/bot{BALE_TOKEN}/sendPhoto"
+        with open(image_path,"rb") as photo:
+            requests.post(url,data={"chat_id":BALE_CHAT_ID},files={"photo":photo})
 
 footer_text = """
 \n📌 برای دنبال کردن آخرین اخبار و مطالب دنیای تکنولوژی، کانال‌های ما را مشاهده کنید:
@@ -118,62 +117,72 @@ https://t.me/hooshmalinovin
 ابزاری قدرتمند برای مدیریت و محاسبات مالی شخصی و حرفه‌ای شما
 https://myket.ir/app/org.MBB.ComprehensiveFinancialCalculator
 """
-@bot.message_handler(func=lambda m: m.text == "Send news")
+
+@bot.message_handler(func=lambda m: m.text and m.text.lower()=="send telegram")
 def send_news_list(message):
-    news_list = get_latest_news()
+    news_list=get_latest_news()
     if not news_list:
-        bot.send_message(message.chat.id, "No news found ❌")
+        bot.send_message(message.chat.id,"No news found ❌")
         return
+    user_news_cache[message.chat.id]=news_list
+    for idx,news in enumerate(news_list):
+        preview=news["description"][:200]+"..."
+        text=f"📢 {news['title']}\n🗓 {news['pub_date']}\n\n{preview}"
+        keyboard=InlineKeyboardMarkup()
+        keyboard.add(InlineKeyboardButton("📤 Send to Channel",callback_data=f"send_{idx}"))
+        bot.send_message(message.chat.id,text,reply_markup=keyboard)
 
-    user_news_cache[message.chat.id] = news_list
-
-    for idx, news in enumerate(news_list):
-        preview = news["description"][:200] + "..."
-        text = f"📢 {news['title']}\n🗓 {news['pub_date']}\n\n{preview}"
-        keyboard = InlineKeyboardMarkup()
-        keyboard.add(InlineKeyboardButton("📤 Send to Channel", callback_data=f"send_{idx}"))
-        bot.send_message(message.chat.id, text, reply_markup=keyboard)
+@bot.message_handler(func=lambda m: m.text and m.text.lower()=="send bale")
+def send_first_news_to_bale(message):
+    news_list=get_latest_news()
+    if not news_list:
+        bot.send_message(message.chat.id,"No news found ❌")
+        return
+    news=news_list[0]
+    title_fa=translator.translate(news["title"])
+    analysis_text=analyze_news_with_gemini(news["description"])
+    caption=f"📢 {title_fa}"
+    full_text=caption+"\n\n"+analysis_text+footer_text
+    image_path=None
+    if news["image"]:
+        image_path=os.path.join(IMAGES_DIR,"latest.jpg")
+        download_image(news["image"],image_path)
+    send_to_bale(full_text,image_path)
+    bot.send_message(message.chat.id,"ارسال شد به بله ✅")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("send_"))
 def send_selected_news(call: CallbackQuery):
-    idx = int(call.data.split("_")[1])
-    news_list = user_news_cache.get(call.message.chat.id)
-
-    if not news_list or idx >= len(news_list):
-        bot.answer_callback_query(call.id, "News not found ❌")
+    idx=int(call.data.split("_")[1])
+    news_list=user_news_cache.get(call.message.chat.id)
+    if not news_list or idx>=len(news_list):
+        bot.answer_callback_query(call.id,"News not found ❌")
         return
-
-    news = news_list[idx]
-
-    title_fa = translator.translate(news["title"])
-    analysis_text = analyze_news_with_gemini(news["description"])
-
-    # اگر تحلیل خطا داشت → فقط به خود کاربر ارسال شود
+    news=news_list[idx]
+    title_fa=translator.translate(news["title"])
+    analysis_text=analyze_news_with_gemini(news["description"])
     if not analysis_text or "خطا" in analysis_text:
-        bot.send_message(call.message.chat.id, f"❌ Error analyzing news:\n{analysis_text}")
-        bot.answer_callback_query(call.id, "Analysis failed ❌")
+        bot.send_message(call.message.chat.id,f"❌ Error analyzing news:\n{analysis_text}")
+        bot.answer_callback_query(call.id,"Analysis failed ❌")
         return
-
-    caption = f"📢 {title_fa}"
-
+    caption=f"📢 {title_fa}"
     if news["image"]:
-        image_path = os.path.join(IMAGES_DIR, "latest.jpg")
-        download_image(news["image"], image_path)
-        with open(image_path, "rb") as photo:
-            bot.send_photo(chat_id=CHANNEL_ID, photo=photo, caption=caption)
+        image_path=os.path.join(IMAGES_DIR,"latest.jpg")
+        download_image(news["image"],image_path)
+        with open(image_path,"rb") as photo:
+            bot.send_photo(chat_id=CHANNEL_ID,photo=photo,caption=caption)
     else:
-        bot.send_message(chat_id=CHANNEL_ID, text=caption)
+        bot.send_message(chat_id=CHANNEL_ID,text=caption)
+    bot.send_message(chat_id=CHANNEL_ID,text=analysis_text+footer_text)
+    bot.answer_callback_query(call.id,"News sent to channel ✅")
 
-    bot.send_message(chat_id=CHANNEL_ID, text=analysis_text + footer_text)
-    bot.answer_callback_query(call.id, "News sent to channel ✅")
-@app.route("/", methods=["POST"])
+@app.route("/",methods=["POST"])
 def webhook():
-    json_string = request.get_data().decode("utf-8")
-    update = telebot.types.Update.de_json(json_string)
+    json_string=request.get_data().decode("utf-8")
+    update=telebot.types.Update.de_json(json_string)
     bot.process_new_updates([update])
     return "ok"
 
-if __name__ == "__main__":
+if __name__=="__main__":
     requests.get(f"https://api.telegram.org/bot{TOKEN}/setWebhook?url={WEBHOOK_URL}")
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    port=int(os.environ.get("PORT",10000))
+    app.run(host="0.0.0.0",port=port)
