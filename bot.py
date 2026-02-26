@@ -194,7 +194,51 @@ def send_selected_news_bale(call: CallbackQuery):
         download_image(news["image"],image_path)
     send_to_bale(full_text,image_path)
     bot.answer_callback_query(call.id,"News sent to Bale ✅")
+@bot.message_handler(func=lambda m: m.text and m.text.lower()=="send news")
+def send_news_list_combined(message):
+    news_list=get_latest_news()
+    if not news_list:
+        bot.send_message(message.chat.id,"No news found ❌")
+        return
+    user_news_cache[message.chat.id]=news_list
+    for idx,news in enumerate(news_list):
+        preview=news["description"][:200]+"..."
+        text=f"📢 {news['title']}\n🗓 {news['pub_date']}\n\n{preview}"
+        keyboard=InlineKeyboardMarkup()
+        keyboard.add(InlineKeyboardButton("📤 Send News",callback_data=f"sendboth_{idx}"))
+        bot.send_message(message.chat.id,text,reply_markup=keyboard)
 
+@bot.callback_query_handler(func=lambda call: call.data.startswith("sendboth_"))
+def send_selected_news_both(call: CallbackQuery):
+    idx=int(call.data.split("_")[1])
+    news_list=user_news_cache.get(call.message.chat.id)
+    if not news_list or idx>=len(news_list):
+        bot.answer_callback_query(call.id,"News not found ❌")
+        return
+    news=news_list[idx]
+    title_fa=translator.translate(news["title"])
+    analysis_text=analyze_news_with_gemini(news["description"])
+    caption=f"📢 {title_fa}"
+    full_text=caption+"\n\n"+analysis_text+footer_text
+
+    # ارسال به تلگرام
+    if news["image"]:
+        image_path=os.path.join(IMAGES_DIR,"latest.jpg")
+        download_image(news["image"],image_path)
+        with open(image_path,"rb") as photo:
+            bot.send_photo(chat_id=CHANNEL_ID,photo=photo,caption=caption)
+    else:
+        bot.send_message(chat_id=CHANNEL_ID,text=caption)
+    bot.send_message(chat_id=CHANNEL_ID,text=analysis_text+footer_text)
+
+    # ارسال به بله
+    image_path=None
+    if news["image"]:
+        image_path=os.path.join(IMAGES_DIR,"latest.jpg")
+        download_image(news["image"],image_path)
+    send_to_bale(full_text,image_path)
+
+    bot.answer_callback_query(call.id,"News sent to Telegram & Bale ✅")
 @app.route("/",methods=["POST"])
 def webhook():
     json_string=request.get_data().decode("utf-8")
