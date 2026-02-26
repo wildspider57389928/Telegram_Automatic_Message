@@ -120,7 +120,7 @@ https://t.me/MBB_Software_Group
 https://t.me/hooshmalinovin
 
 📱 بله:
-https://ble.ir/MBB_News
+https://ble.ir/MBB_Software_Group
 
 🧮 محاسبه‌گر جامع مالی:
 ابزاری قدرتمند برای مدیریت و محاسبات مالی شخصی و حرفه‌ای شما
