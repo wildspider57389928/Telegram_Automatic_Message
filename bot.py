@@ -100,15 +100,14 @@ def get_latest_news(limit=10):
     
 def send_to_bale(text,image_path=None):
     try:
-        url=f"https://tapi.bale.ai/bot{BALE_TOKEN}/sendMessage"
-        r=requests.post(url,data={"chat_id":BALE_CHAT_ID,"text":text})
-        print("Bale message:",r.text)
-
         if image_path:
             url=f"https://tapi.bale.ai/bot{BALE_TOKEN}/sendPhoto"
             with open(image_path,"rb") as photo:
                 r=requests.post(url,data={"chat_id":BALE_CHAT_ID},files={"photo":photo})
                 print("Bale photo:",r.text)
+        url=f"https://tapi.bale.ai/bot{BALE_TOKEN}/sendMessage"
+        r=requests.post(url,data={"chat_id":BALE_CHAT_ID,"text":text})
+        print("Bale message:",r.text)
 
     except Exception as e:
         print("Bale error:",e)
