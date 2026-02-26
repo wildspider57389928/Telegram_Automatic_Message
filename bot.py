@@ -97,15 +97,22 @@ def get_latest_news(limit=10):
         if len(news_list) >= limit:
             break
     return news_list
-
+    
 def send_to_bale(text,image_path=None):
-    url=f"https://tapi.bale.ai/bot{BALE_TOKEN}/sendMessage"
-    requests.post(url,data={"chat_id":BALE_CHAT_ID,"text":text})
-    if image_path:
-        url=f"https://tapi.bale.ai/bot{BALE_TOKEN}/sendPhoto"
-        with open(image_path,"rb") as photo:
-            requests.post(url,data={"chat_id":BALE_CHAT_ID},files={"photo":photo})
+    try:
+        url=f"https://tapi.bale.ai/bot{BALE_TOKEN}/sendMessage"
+        r=requests.post(url,data={"chat_id":BALE_CHAT_ID,"text":text})
+        print("Bale message:",r.text)
 
+        if image_path:
+            url=f"https://tapi.bale.ai/bot{BALE_TOKEN}/sendPhoto"
+            with open(image_path,"rb") as photo:
+                r=requests.post(url,data={"chat_id":BALE_CHAT_ID},files={"photo":photo})
+                print("Bale photo:",r.text)
+
+    except Exception as e:
+        print("Bale error:",e)
+        
 footer_text = """
 \n📌 برای دنبال کردن آخرین اخبار و مطالب دنیای تکنولوژی، کانال‌های ما را مشاهده کنید:
 
