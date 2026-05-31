@@ -60,7 +60,7 @@ def analyze_news_with_gemini(description):
 
 متن زیر را:
 - به فارسی روان بازنویسی کن
-- در یک پاراگراف کوتاه بنویس
+- متن باید حاوی یک پاراگراف کوتاه  متن خبر و نکات کلیدی با ایموجی bullet باشد
 - کامل و قابل فهم باشد
 - لحن جذاب و مخصوص تلگرام داشته باشد
 - فقط متن نهایی را بنویس
@@ -121,10 +121,6 @@ https://t.me/hooshmalinovin
 
 📱 بله:
 https://ble.ir/MBB_Software_Group
-
-🧮 محاسبه‌گر جامع مالی:
-ابزاری قدرتمند برای مدیریت و محاسبات مالی شخصی و حرفه‌ای شما
-https://myket.ir/app/org.MBB.ComprehensiveFinancialCalculator
 """
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower()=="send telegram")
