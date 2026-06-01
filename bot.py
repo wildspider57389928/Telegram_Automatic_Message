@@ -29,7 +29,7 @@ if not os.path.exists(IMAGES_DIR):
     os.makedirs(IMAGES_DIR)
 
 user_news_cache = {}
-preview_cache = {}  # ذخیره پیش‌نمایش برای جلوگیری از پردازش مجدد
+preview_cache = {}
 
 def clean_html(raw_html):
     if not raw_html:
@@ -56,7 +56,6 @@ def download_image(url, filename):
     return False
 
 def analyze_news_with_gemini(description):
-    # بررسی در کش برای جلوگیری از پردازش مجدد
     cache_key = hash(description[:200])
     if cache_key in preview_cache:
         return preview_cache[cache_key]["analysis"]
@@ -107,7 +106,7 @@ def get_latest_news(limit=10):
     
 def send_to_bale(text, image_path=None):
     try:
-        if image_path:
+        if image_path and os.path.exists(image_path):
             url = f"https://tapi.bale.ai/bot{BALE_TOKEN}/sendPhoto"
             with open(image_path, "rb") as photo:
                 r = requests.post(url, data={"chat_id": BALE_CHAT_ID}, files={"photo": photo})
@@ -139,7 +138,6 @@ def send_news_list_combined(message):
     user_news_cache[message.chat.id] = news_list
     
     for idx, news in enumerate(news_list):
-        # پردازش کامل خبر برای کش کردن
         cache_key = hash(news["description"][:200])
         if cache_key not in preview_cache:
             title_fa = translator.translate(news["title"])
@@ -166,140 +164,203 @@ def send_news_list_combined(message):
         
         bot.send_message(message.chat.id, text, reply_markup=keyboard)
 
-def show_preview_and_confirm(chat_id, news_idx, target):
-    """نمایش پیش‌نمایش و دریافت تأیید نهایی"""
-    news_list = user_news_cache.get(chat_id)
-    if not news_list or news_idx >= len(news_list):
-        bot.send_message(chat_id, "خبر یافت نشد ❌")
-        return None
-    
-    news = news_list[news_idx]
-    cache_key = hash(news["description"][:200])
-    cached = preview_cache.get(cache_key)
-    
-    if not cached:
-        return None
-    
-    # ارسال پیش‌نمایش
-    preview_text = f"""📋 **پیش‌نمایش خبر:**
-
-{cached['full_text']}
-
----
-✅ آیا برای ارسال تأیید می‌کنید؟"""
-
-    keyboard = InlineKeyboardMarkup(row_width=2)
-    btn_confirm = InlineKeyboardButton("✅ تأیید و ارسال", callback_data=f"confirm_{target}_{news_idx}")
-    btn_cancel = InlineKeyboardButton("❌ لغو", callback_data=f"cancel_{chat_id}")
-    keyboard.add(btn_confirm, btn_cancel)
-    
-    # ارسال تصویر در صورت وجود
-    if cached['image_url']:
-        image_path = os.path.join(IMAGES_DIR, f"preview_{news_idx}.jpg")
-        download_image(cached['image_url'], image_path)
-        with open(image_path, "rb") as photo:
-            bot.send_photo(chat_id=chat_id, photo=photo, caption=preview_text, 
-                          reply_markup=keyboard, parse_mode="Markdown")
-        return image_path
-    else:
-        bot.send_message(chat_id, preview_text, reply_markup=keyboard, parse_mode="Markdown")
-        return None
+def get_target_name(target):
+    if target == "tg":
+        return "تلگرام"
+    elif target == "bl":
+        return "بله"
+    elif target == "both":
+        return "هر دو پلتفرم"
+    return "نامشخص"
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith(("tg_", "bl_", "both_")))
 def handle_destination_selection(call: CallbackQuery):
-    """مدیریت انتخاب مقصد و نمایش پیش‌نمایش"""
-    target, idx = call.data.split("_")
-    idx = int(idx)
-    
-    # ذخیره انتخاب کاربر در کش
-    if call.message.chat.id not in user_news_cache:
-        user_news_cache[call.message.chat.id] = {}
-    user_news_cache[call.message.chat.id]["selected_target"] = target
-    user_news_cache[call.message.chat.id]["selected_idx"] = idx
-    
-    # نمایش پیش‌نمایش
-    show_preview_and_confirm(call.message.chat.id, idx, target)
-    bot.answer_callback_query(call.id)
+    try:
+        parts = call.data.split("_")
+        target = parts[0]
+        idx = int(parts[1])
+        
+        news_list = user_news_cache.get(call.message.chat.id)
+        if not news_list or idx >= len(news_list):
+            bot.answer_callback_query(call.id, "خبر یافت نشد ❌")
+            return
+        
+        news = news_list[idx]
+        cache_key = hash(news["description"][:200])
+        cached = preview_cache.get(cache_key)
+        
+        if not cached:
+            bot.answer_callback_query(call.id, "خطا در پردازش خبر ❌")
+            return
+        
+        preview_text = f"""📋 **پیش‌نمایش خبر برای ارسال به {get_target_name(target)}:**
+
+{cached['analysis'][:400]}...
+
+---
+✅ آیا برای ارسال تأیید می‌کنید؟"""
+        
+        keyboard = InlineKeyboardMarkup(row_width=2)
+        confirm_btn = InlineKeyboardButton("✅ تأیید و ارسال", callback_data=f"confirm_{target}_{idx}")
+        cancel_btn = InlineKeyboardButton("❌ لغو", callback_data="cancel_send")
+        keyboard.add(confirm_btn, cancel_btn)
+        
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        
+        if cached.get('image_url') and cached['image_url']:
+            image_path = os.path.join(IMAGES_DIR, f"preview_{idx}.jpg")
+            download_image(cached['image_url'], image_path)
+            if os.path.exists(image_path):
+                with open(image_path, "rb") as photo:
+                    bot.send_photo(
+                        chat_id=call.message.chat.id,
+                        photo=photo,
+                        caption=preview_text,
+                        reply_markup=keyboard,
+                        parse_mode="Markdown"
+                    )
+                if call.message.chat.id not in user_news_cache:
+                    user_news_cache[call.message.chat.id] = {}
+                user_news_cache[call.message.chat.id]["preview_image"] = image_path
+            else:
+                bot.send_message(
+                    call.message.chat.id,
+                    preview_text,
+                    reply_markup=keyboard,
+                    parse_mode="Markdown"
+                )
+        else:
+            bot.send_message(
+                call.message.chat.id,
+                preview_text,
+                reply_markup=keyboard,
+                parse_mode="Markdown"
+            )
+        
+        if call.message.chat.id not in user_news_cache:
+            user_news_cache[call.message.chat.id] = {}
+        user_news_cache[call.message.chat.id]["selected_target"] = target
+        user_news_cache[call.message.chat.id]["selected_idx"] = idx
+        
+        bot.answer_callback_query(call.id)
+        
+    except Exception as e:
+        print(f"Error in handle_destination_selection: {e}")
+        bot.answer_callback_query(call.id, "خطایی رخ داد ❌")
+
+@bot.callback_query_handler(func=lambda call: call.data == "cancel_send")
+def cancel_send_handler(call: CallbackQuery):
+    try:
+        bot.edit_message_caption(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            caption="❌ ارسال خبر لغو شد."
+        )
+    except:
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="❌ ارسال خبر لغو شد."
+        )
+    bot.answer_callback_query(call.id, "لغو شد")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("confirm_"))
 def send_confirmed_news(call: CallbackQuery):
-    """ارسال نهایی پس از تأیید پیش‌نمایش"""
-    parts = call.data.split("_")
-    target = parts[1]
-    idx = int(parts[2])
-    
-    chat_id = call.message.chat.id
-    news_list = user_news_cache.get(chat_id)
-    
-    if not news_list or idx >= len(news_list):
-        bot.answer_callback_query(call.id, "خبر یافت نشد ❌")
-        return
-    
-    news = news_list[idx]
-    cache_key = hash(news["description"][:200])
-    cached = preview_cache.get(cache_key)
-    
-    if not cached:
-        bot.answer_callback_query(call.id, "خطا در پردازش خبر ❌")
-        return
-    
-    # ارسال بر اساس هدف انتخاب شده
-    image_path = None
-    if cached['image_url']:
-        image_path = os.path.join(IMAGES_DIR, f"final_{idx}.jpg")
-        download_image(cached['image_url'], image_path)
-    
-    if target == "tg" or target == "both":
-        # ارسال به تلگرام
+    try:
+        parts = call.data.split("_")
+        target = parts[1]
+        idx = int(parts[2])
+        
+        chat_id = call.message.chat.id
+        news_list = user_news_cache.get(chat_id)
+        
+        if not news_list or idx >= len(news_list):
+            bot.answer_callback_query(call.id, "خبر یافت نشد ❌")
+            return
+        
+        news = news_list[idx]
+        cache_key = hash(news["description"][:200])
+        cached = preview_cache.get(cache_key)
+        
+        if not cached:
+            bot.answer_callback_query(call.id, "خطا در پردازش خبر ❌")
+            return
+        
+        image_path = None
+        if cached['image_url']:
+            image_path = os.path.join(IMAGES_DIR, f"final_{idx}.jpg")
+            download_image(cached['image_url'], image_path)
+        
+        success_tg = False
+        success_bl = False
+        
+        if target == "tg" or target == "both":
+            try:
+                if image_path and os.path.exists(image_path):
+                    with open(image_path, "rb") as photo:
+                        bot.send_photo(chat_id=CHANNEL_ID, photo=photo, caption=cached['caption'])
+                else:
+                    bot.send_message(chat_id=CHANNEL_ID, text=cached['caption'])
+                
+                bot.send_message(chat_id=CHANNEL_ID, text=cached['analysis'] + footer_text)
+                success_tg = True
+            except Exception as e:
+                print(f"Telegram error: {e}")
+        
+        if target == "bl" or target == "both":
+            try:
+                send_to_bale(cached['full_text'], image_path)
+                success_bl = True
+            except Exception as e:
+                print(f"Bale error: {e}")
+        
         if image_path and os.path.exists(image_path):
-            with open(image_path, "rb") as photo:
-                bot.send_photo(chat_id=CHANNEL_ID, photo=photo, caption=cached['caption'])
+            os.remove(image_path)
+        
+        preview_image = user_news_cache.get(chat_id, {}).get("preview_image")
+        if preview_image and os.path.exists(preview_image):
+            os.remove(preview_image)
+        
+        if target == "tg":
+            if success_tg:
+                status_msg = "✅ خبر با موفقیت به **تلگرام** ارسال شد!"
+            else:
+                status_msg = "❌ ارسال به تلگرام با خطا مواجه شد!"
+        elif target == "bl":
+            if success_bl:
+                status_msg = "✅ خبر با موفقیت به **بله** ارسال شد!"
+            else:
+                status_msg = "❌ ارسال به بله با خطا مواجه شد!"
         else:
-            bot.send_message(chat_id=CHANNEL_ID, text=cached['caption'])
-        bot.send_message(chat_id=CHANNEL_ID, text=cached['analysis'] + footer_text)
-    
-    if target == "bl" or target == "both":
-        # ارسال به بله
-        send_to_bale(cached['full_text'], image_path)
-    
-    # پاکسازی فایل موقت
-    if image_path and os.path.exists(image_path):
-        os.remove(image_path)
-    
-    # پیام تأیید به کاربر
-    if target == "tg":
-        bot.edit_message_caption(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            caption="✅ خبر با موفقیت به **تلگرام** ارسال شد!",
-            parse_mode="Markdown"
-        )
-    elif target == "bl":
-        bot.edit_message_caption(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            caption="✅ خبر با موفقیت به **بله** ارسال شد!",
-            parse_mode="Markdown"
-        )
-    else:
-        bot.edit_message_caption(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            caption="✅ خبر با موفقیت به **هر دو** پلتفرم ارسال شد!",
-            parse_mode="Markdown"
-        )
-    
-    bot.answer_callback_query(call.id, "خبر ارسال شد ✅")
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("cancel_"))
-def cancel_send(call: CallbackQuery):
-    """لغو ارسال خبر"""
-    bot.edit_message_caption(
-        chat_id=call.message.chat.id,
-        message_id=call.message.message_id,
-        caption="❌ ارسال خبر لغو شد."
-    )
-    bot.answer_callback_query(call.id, "لغو شد")
+            if success_tg and success_bl:
+                status_msg = "✅ خبر با موفقیت به **هر دو** پلتفرم ارسال شد!"
+            elif success_tg:
+                status_msg = "⚠️ خبر فقط به **تلگرام** ارسال شد (بله ناموفق)"
+            elif success_bl:
+                status_msg = "⚠️ خبر فقط به **بله** ارسال شد (تلگرام ناموفق)"
+            else:
+                status_msg = "❌ ارسال به هر دو پلتفرم با خطا مواجه شد!"
+        
+        try:
+            bot.edit_message_caption(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                caption=status_msg,
+                parse_mode="Markdown"
+            )
+        except:
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text=status_msg,
+                parse_mode="Markdown"
+            )
+        
+        bot.answer_callback_query(call.id, "عملیات ارسال تکمیل شد ✅")
+        
+    except Exception as e:
+        print(f"Error in send_confirmed_news: {e}")
+        bot.answer_callback_query(call.id, "خطایی رخ داد ❌")
 
 @app.route("/", methods=["POST"])
 def webhook():
