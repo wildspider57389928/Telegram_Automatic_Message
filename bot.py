@@ -182,7 +182,7 @@ def handle_destination_selection(call: CallbackQuery):
         
         news_list = user_news_cache.get(call.message.chat.id)
         if not news_list or idx >= len(news_list):
-            bot.answer_callback_query(call.id, "خبر یافت نشد ❌")
+            bot.answer_callback_query(call.id, "خبر یافت نشد ❌", show_alert=True)
             return
         
         news = news_list[idx]
@@ -190,7 +190,7 @@ def handle_destination_selection(call: CallbackQuery):
         cached = preview_cache.get(cache_key)
         
         if not cached:
-            bot.answer_callback_query(call.id, "خطا در پردازش خبر ❌")
+            bot.answer_callback_query(call.id, "خطا در پردازش خبر ❌", show_alert=True)
             return
         
         preview_text = f"""📋 **پیش‌نمایش خبر برای ارسال به {get_target_name(target)}:**
@@ -246,23 +246,15 @@ def handle_destination_selection(call: CallbackQuery):
         
     except Exception as e:
         print(f"Error in handle_destination_selection: {e}")
-        bot.answer_callback_query(call.id, "خطایی رخ داد ❌")
+        bot.answer_callback_query(call.id, "خطایی رخ داد ❌", show_alert=True)
 
 @bot.callback_query_handler(func=lambda call: call.data == "cancel_send")
 def cancel_send_handler(call: CallbackQuery):
     try:
-        bot.edit_message_caption(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            caption="❌ ارسال خبر لغو شد."
-        )
+        bot.delete_message(call.message.chat.id, call.message.message_id)
     except:
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text="❌ ارسال خبر لغو شد."
-        )
-    bot.answer_callback_query(call.id, "لغو شد")
+        pass
+    bot.answer_callback_query(call.id, "❌ ارسال لغو شد", show_alert=True)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("confirm_"))
 def send_confirmed_news(call: CallbackQuery):
@@ -275,7 +267,7 @@ def send_confirmed_news(call: CallbackQuery):
         news_list = user_news_cache.get(chat_id)
         
         if not news_list or idx >= len(news_list):
-            bot.answer_callback_query(call.id, "خبر یافت نشد ❌")
+            bot.answer_callback_query(call.id, "خبر یافت نشد ❌", show_alert=True)
             return
         
         news = news_list[idx]
@@ -283,7 +275,7 @@ def send_confirmed_news(call: CallbackQuery):
         cached = preview_cache.get(cache_key)
         
         if not cached:
-            bot.answer_callback_query(call.id, "خطا در پردازش خبر ❌")
+            bot.answer_callback_query(call.id, "خطا در پردازش خبر ❌", show_alert=True)
             return
         
         image_path = None
@@ -321,46 +313,36 @@ def send_confirmed_news(call: CallbackQuery):
         if preview_image and os.path.exists(preview_image):
             os.remove(preview_image)
         
+        # حذف پیام پیش‌نمایش
+        try:
+            bot.delete_message(chat_id, call.message.message_id)
+        except:
+            pass
+        
+        # نمایش پیام بالای بات
         if target == "tg":
             if success_tg:
-                status_msg = "✅ خبر با موفقیت به **تلگرام** ارسال شد!"
+                bot.answer_callback_query(call.id, "✅ به تلگرام ارسال شد!", show_alert=True)
             else:
-                status_msg = "❌ ارسال به تلگرام با خطا مواجه شد!"
+                bot.answer_callback_query(call.id, "❌ خطا در ارسال به تلگرام", show_alert=True)
         elif target == "bl":
             if success_bl:
-                status_msg = "✅ خبر با موفقیت به **بله** ارسال شد!"
+                bot.answer_callback_query(call.id, "✅ به بله ارسال شد!", show_alert=True)
             else:
-                status_msg = "❌ ارسال به بله با خطا مواجه شد!"
+                bot.answer_callback_query(call.id, "❌ خطا در ارسال به بله", show_alert=True)
         else:
             if success_tg and success_bl:
-                status_msg = "✅ خبر با موفقیت به **هر دو** پلتفرم ارسال شد!"
+                bot.answer_callback_query(call.id, "✅ به هر دو پلتفرم ارسال شد!", show_alert=True)
             elif success_tg:
-                status_msg = "⚠️ خبر فقط به **تلگرام** ارسال شد (بله ناموفق)"
+                bot.answer_callback_query(call.id, "⚠️ فقط تلگرام ارسال شد (بله خطا)", show_alert=True)
             elif success_bl:
-                status_msg = "⚠️ خبر فقط به **بله** ارسال شد (تلگرام ناموفق)"
+                bot.answer_callback_query(call.id, "⚠️ فقط بله ارسال شد (تلگرام خطا)", show_alert=True)
             else:
-                status_msg = "❌ ارسال به هر دو پلتفرم با خطا مواجه شد!"
-        
-        try:
-            bot.edit_message_caption(
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                caption=status_msg,
-                parse_mode="Markdown"
-            )
-        except:
-            bot.edit_message_text(
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                text=status_msg,
-                parse_mode="Markdown"
-            )
-        
-        bot.answer_callback_query(call.id, "عملیات ارسال تکمیل شد ✅")
+                bot.answer_callback_query(call.id, "❌ ارسال به هر دو失敗 شد", show_alert=True)
         
     except Exception as e:
         print(f"Error in send_confirmed_news: {e}")
-        bot.answer_callback_query(call.id, "خطایی رخ داد ❌")
+        bot.answer_callback_query(call.id, f"❌ خطا: {str(e)[:50]}", show_alert=True)
 
 @app.route("/", methods=["POST"])
 def webhook():
