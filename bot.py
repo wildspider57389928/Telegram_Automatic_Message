@@ -357,7 +357,153 @@ def send_confirmed_news(call: CallbackQuery):
     except Exception as e:
         print(f"Error in send_confirmed_news: {e}")
         bot.answer_callback_query(call.id, f"❌ خطا: {str(e)[:50]}", show_alert=True)
+# ================== بخش جدید: پردازش خبر دنیای اقتصاد با Gemini ==================
+# این بخش کاملاً جداگانه و بدون تداخل با کد اصلی کار می‌کند
 
+DONYAYE_EQTESAD_RSS = "https://donya-e-eqtesad.com/fa/feeds/?p=Y2F0ZWdvcmllcz0yNA%2C%2C"
+
+def get_donyaye_eqtesad_full_text():
+    """دریافت متن کامل خبر از RSS دنیای اقتصاد (بدون عنوان)"""
+    try:
+        feed = feedparser.parse(DONYAYE_EQTESAD_RSS)
+        if not feed.entries:
+            return None, "هیچ خبری در فید یافت نشد ❌"
+        
+        first_news = feed.entries[0]
+        news_link = first_news.link
+        news_title = first_news.title
+        
+        # دریافت صفحه خبر
+        response = requests.get(news_link, timeout=15)
+        response.raise_for_status()
+        response.encoding = 'utf-8'
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # استخراج lead justify
+        lead_element = soup.find(class_="lead justify")
+        lead_text = ""
+        if lead_element:
+            lead_text = lead_element.get_text(strip=True)
+            import re
+            lead_text = re.sub(r'^مترجم:\s*', '', lead_text)
+        
+        # استخراج متن اصلی از echo-detail
+        echo_detail = soup.find(id="echo-detail")
+        if not echo_detail:
+            article_body = soup.find(class_="article-body")
+            if article_body:
+                echo_detail = article_body.find(id="echo-detail")
+        
+        if not echo_detail:
+            return None, "امکان استخراج متن کامل خبر وجود ندارد ❌"
+        
+        # حذف عکس‌ها
+        for primary_file in echo_detail.find_all(class_="primary-files"):
+            primary_file.decompose()
+        
+        # حذف آخرین پاراگراف تکراری
+        paragraphs = echo_detail.find_all('p')
+        if paragraphs:
+            last_p = paragraphs[-1]
+            last_text = last_p.get_text(strip=True)
+            if any(word in last_text for word in ["مفید", "کپی", "پسندیده", "منبع"]):
+                last_p.decompose()
+        
+        # استخراج متن تمیز
+        full_text = echo_detail.get_text(strip=True)
+        import re
+        full_text = re.sub(r'منبع:\s*[^\n]+', '', full_text)
+        full_text = re.sub(r'این مطلب برایم مفید است\s*\d*', '', full_text)
+        full_text = re.sub(r'\d*نفر این مطلب را پسندیده اند', '', full_text)
+        full_text = re.sub(r'کپی شد', '', full_text)
+        full_text = re.sub(r'\s+', ' ', full_text).strip()
+        
+        # ترکیب lead و متن اصلی
+        combined_text = ""
+        if lead_text:
+            combined_text = lead_text + " " + full_text
+        else:
+            combined_text = full_text
+        
+        return combined_text, news_link, None
+        
+    except Exception as e:
+        return None, None, f"خطا: {str(e)[:100]} ❌"
+
+def analyze_with_gemini_podcast(text):
+    """تحلیل متن خبر با Gemini و خروجی کوتاه و مفید"""
+    
+    prompt = f"""
+    تو یک تحلیلگر خبری حرفه‌ای هستی. متن خبر زیر را به یک تحلیل کوتاه، مفید و روان تبدیل کن.
+
+    قوانین مهم:
+    - حداکثر 2500 کاراکتر
+    - فقط مهم‌ترین نکات خبر را پوشش بده
+    - سبک: روان، ساده و بی‌طرف
+    - بدون نقل قول مستقیم
+    - بدون توضیحات اضافی
+    - پاراگراف اول: اصل خبر (چه، کجا، کی)
+    - پاراگراف دوم: جزئیات تکمیلی و چرایی
+    - پاراگراف سوم (اختیاری): پیامد یا تاثیر خبر
+    
+    متن خبر:
+    {text[:8000]}
+    """
+    try:
+        response = client.models.generate_content(
+            model="gemini-3.1-flash-lite",
+            contents=prompt
+        )
+        return response.text.strip()
+    except Exception as e:
+        return f"خطا در تحلیل خبر: {e}"
+
+@bot.message_handler(func=lambda m: m.text and m.text.lower() == "send podcast")
+def handle_send_podcast(message):
+    """ارسال مستقیم تحلیل خبر به کانال تلگرام"""
+    
+    # پیام به کاربر برای اطلاع
+    bot.reply_to(message, "🤖 در حال دریافت و تحلیل آخرین خبر از دنیای اقتصاد...")
+    
+    # دریافت متن کامل خبر
+    full_text, news_link, error = get_donyaye_eqtesad_full_text()
+    
+    if error or not full_text:
+        bot.send_message(
+            message.chat.id,
+            f"❌ {error or 'مشکلی در دریافت خبر پیش آمد'}\nلطفاً چند دقیقه دیگر تلاش کنید."
+        )
+        return
+    
+    # تحلیل با Gemini
+    bot.send_message(message.chat.id, "🧠 در حال تحلیل خبر با هوش مصنوعی Gemini...")
+    
+    analysis = analyze_with_gemini_podcast(full_text)
+    
+    # اضافه کردن لینک منبع در انتها
+    final_text = f"{analysis}\n\n🔗 منبع: {news_link}"
+    
+    # برش به حداکثر طول مجاز تلگرام (4096 کاراکتر)
+    MAX_LEN = 4096
+    if len(final_text) > MAX_LEN:
+        final_text = final_text[:MAX_LEN-50] + "...\n\n🔗 منبع: " + news_link
+    
+    # ارسال مستقیم به کانال
+    try:
+        bot.send_message(
+            chat_id=CHANNEL_ID,
+            text=final_text
+        )
+        bot.send_message(
+            message.chat.id,
+            "✅ خبر با موفقیت در کانال ارسال شد!"
+        )
+    except Exception as e:
+        bot.send_message(
+            message.chat.id,
+            f"❌ خطا در ارسال به کانال: {str(e)[:100]}"
+        )
 @app.route("/", methods=["POST"])
 def webhook():
     json_string = request.get_data().decode("utf-8")
