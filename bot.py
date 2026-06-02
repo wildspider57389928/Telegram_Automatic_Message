@@ -627,6 +627,200 @@ def handle_donya_cancel(call):
         bot.send_message(call.message.chat.id, "عملیات انتخاب خبر لغو شد. برای شروع مجدد 'send podcast' را ارسال کنید.")
     except:
         bot.answer_callback_query(call.id, "لغو شد", show_alert=True)
+-------------------------------------------------------------------
+# ================== بخش جدید: send podcast voice (گفتگوی صوتی) ==================
+import wave
+import tempfile
+import os
+from google.genai import types
+
+# کش جداگانه برای اخبار voice
+user_donya_voice_cache = {}
+
+def save_wav(filename: str, pcm_data: bytes) -> None:
+    """ذخیره دیتای خام PCM به عنوان فایل WAV"""
+    with wave.open(filename, "wb") as wf:
+        wf.setnchannels(1)          # mono
+        wf.setsampwidth(2)          # 16-bit
+        wf.setframerate(24000)      # 24kHz
+        wf.writeframes(pcm_data)
+
+def generate_dialogue_from_news(news_summary: str) -> str:
+    """تولید دیالوگ بین علی و سارا بر اساس خلاصه خبر"""
+    prompt = f"""
+    Write a short, natural dialogue between two friends named 'Ali' and 'Sara' 
+    discussing the following news summary. Keep it engaging and informative.
+
+    News summary:
+    {news_summary}
+
+    Format exactly like this:
+    Ali: [text]
+    Sara: [text]
+    """
+    try:
+        response = client.models.generate_content(
+            model="gemini-3.1-flash-lite",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=(
+                    "You are a professional dialogue writer. "
+                    "The dialogue must be short (max 10 exchanges). "
+                    "Do not add any extra text before or after the dialogue."
+                )
+            )
+        )
+        dialogue = response.text.strip()
+        # اعتبارسنجی ساده
+        if "Ali:" not in dialogue or "Sara:" not in dialogue:
+            raise ValueError("Model did not generate proper dialogue format")
+        return dialogue
+    except Exception as e:
+        raise Exception(f"Dialogue generation failed: {e}")
+
+def text_to_speech_multi_speaker(dialogue_text: str, output_filename: str) -> str:
+    """تبدیل دیالوگ چندنفره به فایل صوتی با دو صدای متفاوت"""
+    # پیکربندی دو گوینده: علی (صدای Kore) و سارا (صدای Puck)
+    multi_speaker_config = types.MultiSpeakerVoiceConfig(
+        speaker_voice_configs=[
+            types.SpeakerVoiceConfig(
+                speaker="Ali",
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Kore")
+                )
+            ),
+            types.SpeakerVoiceConfig(
+                speaker="Sara",
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Puck")
+                )
+            ),
+        ]
+    )
+
+    response = client.models.generate_content(
+        model="gemini-3.1-flash-tts-preview",
+        contents=dialogue_text,
+        config=types.GenerateContentConfig(
+            response_modalities=["AUDIO"],
+            speech_config=types.SpeechConfig(
+                multi_speaker_voice_config=multi_speaker_config
+            ),
+        ),
+    )
+
+    if (response.candidates and response.candidates[0].content
+        and response.candidates[0].content.parts
+        and response.candidates[0].content.parts[0].inline_data):
+        audio_data = response.candidates[0].content.parts[0].inline_data.data
+        save_wav(output_filename, audio_data)
+        return output_filename
+    else:
+        raise Exception("No audio data received from TTS model")
+
+@bot.message_handler(func=lambda m: m.text and m.text.lower() == "send podcast voice")
+def handle_send_podcast_voice(message):
+    """نمایش لیست اخبار برای انتخاب و ساخت گفتگوی صوتی"""
+    bot.reply_to(message, "🎙️ در حال دریافت لیست آخرین اخبار از دنیای اقتصاد...")
+
+    news_list = get_donya_news_list(limit=8)   # تابع قبلی (در کد اصلی وجود دارد)
+    if not news_list:
+        bot.send_message(message.chat.id, "❌ هیچ خبری یافت نشد. لطفاً چند دقیقه دیگر تلاش کنید.")
+        return
+
+    # ذخیره در کش مخصوص voice
+    user_donya_voice_cache[message.chat.id] = news_list
+
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    for news in news_list:
+        short_title = news['title'][:40] + "..." if len(news['title']) > 40 else news['title']
+        keyboard.add(InlineKeyboardButton(f"🎧 {short_title}", callback_data=f"donya_voice_select_{news['idx']}"))
+    keyboard.add(InlineKeyboardButton("❌ لغو", callback_data="donya_voice_cancel"))
+
+    preview_text = "📬 **لیست آخرین اخبار (تبدیل به گفتگوی صوتی):**\n\n"
+    for news in news_list:
+        preview_text += f"🔹 **{news['title']}**\n"
+        if news['preview']:
+            preview_text += f"   {news['preview']}\n"
+        preview_text += "\n"
+    preview_text += "👇 لطفاً یکی از اخبار را انتخاب کنید."
+
+    bot.send_message(message.chat.id, preview_text, reply_markup=keyboard, parse_mode="Markdown")
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("donya_voice_select_"))
+def handle_donya_voice_selection(call):
+    """پردازش خبر انتخاب شده: دریافت متن، تحلیل، ساخت دیالوگ و ارسال فایل صوتی"""
+    try:
+        idx = int(call.data.split("_")[3])
+        chat_id = call.message.chat.id
+
+        news_list = user_donya_voice_cache.get(chat_id)
+        if not news_list or idx >= len(news_list):
+            bot.answer_callback_query(call.id, "❌ خطا: خبر یافت نشد", show_alert=True)
+            return
+
+        selected_news = news_list[idx]
+        news_title = selected_news['title']
+        news_link = selected_news['link']
+
+        bot.answer_callback_query(call.id, f"✅ خبر '{news_title[:50]}...' انتخاب شد. در حال پردازش...")
+
+        # حذف پیام لیست
+        try:
+            bot.delete_message(chat_id, call.message.message_id)
+        except:
+            pass
+
+        status_msg = bot.send_message(chat_id, f"📰 **خبر:** {news_title}\n\n🔄 دریافت متن کامل...")
+
+        # دریافت متن کامل خبر
+        full_text, error = get_donya_full_text(news_link)  # تابع قبلی
+        if error or not full_text:
+            bot.edit_message_text(f"❌ {error or 'مشکل در دریافت خبر'}", chat_id, status_msg.message_id)
+            return
+
+        # تحلیل خبر با Gemini (خلاصه‌سازی)
+        bot.edit_message_text(f"📰 **خبر:** {news_title}\n\n🧠 تحلیل خبر با هوش مصنوعی...", chat_id, status_msg.message_id)
+        analysis = analyze_with_gemini_podcast(full_text)   # تابع قبلی
+
+        # تولید دیالوگ بر اساس تحلیل
+        bot.edit_message_text(f"📰 **خبر:** {news_title}\n\n💬 ساخت گفتگوی دو نفره...", chat_id, status_msg.message_id)
+        dialogue = generate_dialogue_from_news(analysis)
+
+        # تبدیل دیالوگ به صدا
+        bot.edit_message_text(f"📰 **خبر:** {news_title}\n\n🎤 تبدیل به گفتگوی صوتی (حدود ۱۵ ثانیه)...", chat_id, status_msg.message_id)
+
+        # ذخیره در فایل موقت
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+            audio_path = tmp.name
+        text_to_speech_multi_speaker(dialogue, audio_path)
+
+        # ارسال فایل صوتی به کانال به همراه عنوان خبر به عنوان کپشن
+        caption = f"🎙️ گفتگوی صوتی: {news_title}"
+        with open(audio_path, "rb") as voice_file:
+            bot.send_voice(chat_id=CHANNEL_ID, voice=voice_file, caption=caption)
+
+        # پاکسازی فایل موقت و پیام وضعیت
+        os.unlink(audio_path)
+        bot.edit_message_text(f"✅ **گفتگوی صوتی با موفقیت در کانال ارسال شد!**\n\n📰 عنوان: {news_title}", chat_id, status_msg.message_id)
+
+    except Exception as e:
+        error_msg = f"❌ خطا: {str(e)[:200]}"
+        bot.edit_message_text(error_msg, call.message.chat.id, status_msg.message_id)
+        bot.answer_callback_query(call.id, error_msg[:50], show_alert=True)
+
+@bot.callback_query_handler(func=lambda call: call.data == "donya_voice_cancel")
+def handle_donya_voice_cancel(call):
+    try:
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        bot.answer_callback_query(call.id, "❌ عملیات لغو شد", show_alert=True)
+        bot.send_message(call.message.chat.id, "عملیات ساخت گفتگوی صوتی لغو شد. برای شروع مجدد 'send podcast voice' را ارسال کنید.")
+    except:
+        bot.answer_callback_query(call.id, "لغو شد", show_alert=True)
+
+
+
+
 @app.route("/", methods=["POST"])
 def webhook():
     json_string = request.get_data().decode("utf-8")
