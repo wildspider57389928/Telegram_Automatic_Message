@@ -627,7 +627,6 @@ def handle_donya_cancel(call):
         bot.send_message(call.message.chat.id, "عملیات انتخاب خبر لغو شد. برای شروع مجدد 'send podcast' را ارسال کنید.")
     except:
         bot.answer_callback_query(call.id, "لغو شد", show_alert=True)
--------------------------------------------------------------------
 # ================== بخش جدید: send podcast voice (گفتگوی صوتی) ==================
 import wave
 import tempfile
