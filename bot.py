@@ -361,6 +361,8 @@ def send_confirmed_news(call: CallbackQuery):
 # این بخش کاملاً جداگانه و بدون تداخل با کد اصلی کار می‌کند
 # ================== بخش جدید: پردازش خبر دنیای اقتصاد با انتخاب کاربر ==================
 # این بخش کاملاً جداگانه و بدون تداخل با کد اصلی کار می‌کند
+# ================== بخش جدید: پردازش خبر دنیای اقتصاد با انتخاب کاربر ==================
+# این بخش کاملاً جداگانه و بدون تداخل با کد اصلی کار می‌کند
 
 DONYAYE_EQTESAD_RSS = "https://donya-e-eqtesad.com/fa/feeds/?p=Y2F0ZWdvcmllcz0yNA%2C%2C"
 
@@ -579,13 +581,14 @@ def handle_donya_news_selection(call):
         
         analysis = analyze_with_gemini_podcast(full_text)
         
-        # اضافه کردن لینک منبع در انتها
-        final_text = f"{analysis}\n\n🔗 منبع: {news_link}"
+        # ========== تغییر اصلی اینجاست ==========
+        # ساخت متن نهایی با عنوان در ابتدا (بدون لینک منبع)
+        final_text = f"📰 **{news_title}**\n\n{analysis}"
         
         # برش به حداکثر طول مجاز تلگرام (4096 کاراکتر)
         MAX_LEN = 4096
         if len(final_text) > MAX_LEN:
-            final_text = final_text[:MAX_LEN-50] + "...\n\n🔗 منبع: " + news_link
+            final_text = final_text[:MAX_LEN-50] + "..."
         
         # ارسال به کانال
         bot.edit_message_text(
@@ -597,10 +600,11 @@ def handle_donya_news_selection(call):
         try:
             bot.send_message(
                 chat_id=CHANNEL_ID,
-                text=final_text
+                text=final_text,
+                parse_mode="Markdown"
             )
             bot.edit_message_text(
-                f"✅ **خبر با موفقیت در کانال ارسال شد!**\n\n📰 عنوان: {news_title}\n\n🔗 {news_link}",
+                f"✅ **خبر با موفقیت در کانال ارسال شد!**\n\n📰 عنوان: {news_title}",
                 call.message.chat.id,
                 status_msg.message_id
             )
