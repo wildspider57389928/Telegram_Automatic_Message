@@ -359,22 +359,44 @@ def send_confirmed_news(call: CallbackQuery):
         bot.answer_callback_query(call.id, f"❌ خطا: {str(e)[:50]}", show_alert=True)
 # ================== بخش جدید: پردازش خبر دنیای اقتصاد با Gemini ==================
 # این بخش کاملاً جداگانه و بدون تداخل با کد اصلی کار می‌کند
+# ================== بخش جدید: پردازش خبر دنیای اقتصاد با انتخاب کاربر ==================
+# این بخش کاملاً جداگانه و بدون تداخل با کد اصلی کار می‌کند
 
 DONYAYE_EQTESAD_RSS = "https://donya-e-eqtesad.com/fa/feeds/?p=Y2F0ZWdvcmllcz0yNA%2C%2C"
 
-def get_donyaye_eqtesad_full_text():
-    """دریافت متن کامل خبر از RSS دنیای اقتصاد (بدون عنوان)"""
+# کش موقت برای ذخیره اخبار هر کاربر
+user_donya_news_cache = {}
+
+def get_donya_news_list(limit=10):
+    """دریافت لیست اخبار از RSS (فقط عنوان و خلاصه RSS)"""
+    feed = feedparser.parse(DONYAYE_EQTESAD_RSS)
+    news_list = []
+    
+    for idx, entry in enumerate(feed.entries):
+        if idx >= limit:
+            break
+            
+        title = entry.title
+        # استفاده از توضیحات خود RSS (بدون درخواست اضافی)
+        rss_description = entry.description if "description" in entry else ""
+        if rss_description:
+            # حذف تگ‌های HTML از توضیحات RSS
+            soup = BeautifulSoup(rss_description, "html.parser")
+            rss_description = soup.get_text(strip=True)[:200] + "..."
+        
+        news_list.append({
+            "idx": idx,
+            "title": title,
+            "preview": rss_description,
+            "link": entry.link
+        })
+    
+    return news_list
+
+def get_donya_full_text(link):
+    """دریافت متن کامل خبر از لینک (برای تحلیل با Gemini)"""
     try:
-        feed = feedparser.parse(DONYAYE_EQTESAD_RSS)
-        if not feed.entries:
-            return None, "هیچ خبری در فید یافت نشد ❌"
-        
-        first_news = feed.entries[0]
-        news_link = first_news.link
-        news_title = first_news.title
-        
-        # دریافت صفحه خبر
-        response = requests.get(news_link, timeout=15)
+        response = requests.get(link, timeout=15)
         response.raise_for_status()
         response.encoding = 'utf-8'
         
@@ -420,16 +442,15 @@ def get_donyaye_eqtesad_full_text():
         full_text = re.sub(r'\s+', ' ', full_text).strip()
         
         # ترکیب lead و متن اصلی
-        combined_text = ""
         if lead_text:
-            combined_text = lead_text + " " + full_text
+            combined = lead_text + " " + full_text
         else:
-            combined_text = full_text
+            combined = full_text
         
-        return combined_text, news_link, None
+        return combined, None
         
     except Exception as e:
-        return None, None, f"خطا: {str(e)[:100]} ❌"
+        return None, f"خطا: {str(e)[:100]}"
 
 def analyze_with_gemini_podcast(text):
     """تحلیل متن خبر با Gemini و خروجی کوتاه و مفید"""
@@ -461,49 +482,147 @@ def analyze_with_gemini_podcast(text):
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower() == "send podcast")
 def handle_send_podcast(message):
-    """ارسال مستقیم تحلیل خبر به کانال تلگرام"""
+    """نمایش لیست اخبار برای انتخاب کاربر"""
     
-    # پیام به کاربر برای اطلاع
-    bot.reply_to(message, "🤖 در حال دریافت و تحلیل آخرین خبر از دنیای اقتصاد...")
+    bot.reply_to(message, "📡 در حال دریافت لیست آخرین اخبار از دنیای اقتصاد...")
     
-    # دریافت متن کامل خبر
-    full_text, news_link, error = get_donyaye_eqtesad_full_text()
+    # دریافت لیست اخبار
+    news_list = get_donya_news_list(limit=8)
     
-    if error or not full_text:
-        bot.send_message(
-            message.chat.id,
-            f"❌ {error or 'مشکلی در دریافت خبر پیش آمد'}\nلطفاً چند دقیقه دیگر تلاش کنید."
-        )
+    if not news_list:
+        bot.send_message(message.chat.id, "❌ هیچ خبری یافت نشد. لطفاً چند دقیقه دیگر تلاش کنید.")
         return
     
-    # تحلیل با Gemini
-    bot.send_message(message.chat.id, "🧠 در حال تحلیل خبر با هوش مصنوعی Gemini...")
+    # ذخیره در کش کاربر
+    user_donya_news_cache[message.chat.id] = news_list
     
-    analysis = analyze_with_gemini_podcast(full_text)
+    # ساخت پیام با دکمه‌ها
+    keyboard = InlineKeyboardMarkup(row_width=1)
     
-    # اضافه کردن لینک منبع در انتها
-    final_text = f"{analysis}\n\n🔗 منبع: {news_link}"
+    for news in news_list:
+        # عنوان کوتاه شده برای دکمه
+        short_title = news['title'][:40] + "..." if len(news['title']) > 40 else news['title']
+        callback_data = f"donya_select_{news['idx']}"
+        keyboard.add(InlineKeyboardButton(f"📰 {short_title}", callback_data=callback_data))
     
-    # برش به حداکثر طول مجاز تلگرام (4096 کاراکتر)
-    MAX_LEN = 4096
-    if len(final_text) > MAX_LEN:
-        final_text = final_text[:MAX_LEN-50] + "...\n\n🔗 منبع: " + news_link
+    # دکمه لغو
+    keyboard.add(InlineKeyboardButton("❌ لغو", callback_data="donya_cancel"))
     
-    # ارسال مستقیم به کانال
+    # ساخت پیام پیش‌نمایش
+    preview_text = "📬 **لیست آخرین اخبار دنیای اقتصاد:**\n\n"
+    for news in news_list:
+        preview_text += f"🔹 **{news['title']}**\n"
+        if news['preview']:
+            preview_text += f"   {news['preview']}\n"
+        preview_text += "\n"
+    
+    preview_text += "👇 لطفاً یکی از اخبار بالا را انتخاب کنید."
+    
+    bot.send_message(
+        message.chat.id,
+        preview_text,
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("donya_select_"))
+def handle_donya_news_selection(call):
+    """پردازش خبر انتخاب شده توسط کاربر"""
+    
     try:
-        bot.send_message(
-            chat_id=CHANNEL_ID,
-            text=final_text
+        # استخراج ایندکس خبر
+        idx = int(call.data.split("_")[2])
+        
+        # دریافت لیست خبر از کش
+        news_list = user_donya_news_cache.get(call.message.chat.id)
+        
+        if not news_list or idx >= len(news_list):
+            bot.answer_callback_query(call.id, "❌ خطا: خبر یافت نشد", show_alert=True)
+            return
+        
+        selected_news = news_list[idx]
+        news_link = selected_news['link']
+        news_title = selected_news['title']
+        
+        # اعلام به کاربر
+        bot.answer_callback_query(call.id, f"✅ خبر '{news_title[:50]}...' انتخاب شد. در حال پردازش...")
+        
+        # حذف پیام قبلی (لیست اخبار)
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass
+        
+        # پیام وضعیت
+        status_msg = bot.send_message(
+            call.message.chat.id,
+            f"📰 **خبر انتخاب شده:** {news_title}\n\n🔄 در حال دریافت متن کامل خبر..."
         )
-        bot.send_message(
-            message.chat.id,
-            "✅ خبر با موفقیت در کانال ارسال شد!"
+        
+        # دریافت متن کامل خبر
+        full_text, error = get_donya_full_text(news_link)
+        
+        if error or not full_text:
+            bot.edit_message_text(
+                f"❌ {error or 'مشکلی در دریافت خبر پیش آمد'}\n\nلطفاً دوباره با ارسال 'send podcast' تلاش کنید.",
+                call.message.chat.id,
+                status_msg.message_id
+            )
+            return
+        
+        # تحلیل با Gemini
+        bot.edit_message_text(
+            f"📰 **خبر انتخاب شده:** {news_title}\n\n🧠 در حال تحلیل خبر با هوش مصنوعی Gemini...",
+            call.message.chat.id,
+            status_msg.message_id
         )
+        
+        analysis = analyze_with_gemini_podcast(full_text)
+        
+        # اضافه کردن لینک منبع در انتها
+        final_text = f"{analysis}\n\n🔗 منبع: {news_link}"
+        
+        # برش به حداکثر طول مجاز تلگرام (4096 کاراکتر)
+        MAX_LEN = 4096
+        if len(final_text) > MAX_LEN:
+            final_text = final_text[:MAX_LEN-50] + "...\n\n🔗 منبع: " + news_link
+        
+        # ارسال به کانال
+        bot.edit_message_text(
+            f"📰 **خبر انتخاب شده:** {news_title}\n\n📤 در حال ارسال به کانال...",
+            call.message.chat.id,
+            status_msg.message_id
+        )
+        
+        try:
+            bot.send_message(
+                chat_id=CHANNEL_ID,
+                text=final_text
+            )
+            bot.edit_message_text(
+                f"✅ **خبر با موفقیت در کانال ارسال شد!**\n\n📰 عنوان: {news_title}\n\n🔗 {news_link}",
+                call.message.chat.id,
+                status_msg.message_id
+            )
+        except Exception as e:
+            bot.edit_message_text(
+                f"❌ خطا در ارسال به کانال: {str(e)[:200]}",
+                call.message.chat.id,
+                status_msg.message_id
+            )
+            
     except Exception as e:
-        bot.send_message(
-            message.chat.id,
-            f"❌ خطا در ارسال به کانال: {str(e)[:100]}"
-        )
+        bot.answer_callback_query(call.id, f"❌ خطا: {str(e)[:50]}", show_alert=True)
+
+@bot.callback_query_handler(func=lambda call: call.data == "donya_cancel")
+def handle_donya_cancel(call):
+    """لغو انتخاب خبر"""
+    try:
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        bot.answer_callback_query(call.id, "❌ عملیات لغو شد", show_alert=True)
+        bot.send_message(call.message.chat.id, "عملیات انتخاب خبر لغو شد. برای شروع مجدد 'send podcast' را ارسال کنید.")
+    except:
+        bot.answer_callback_query(call.id, "لغو شد", show_alert=True)
 @app.route("/", methods=["POST"])
 def webhook():
     json_string = request.get_data().decode("utf-8")
