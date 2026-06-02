@@ -6,6 +6,7 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQu
 from flask import Flask, request
 import requests
 import os
+import threading
 from google import genai
 
 TOKEN = os.getenv("BOT_TOKEN")
@@ -630,7 +631,6 @@ def handle_donya_cancel(call):
 # ================== بخش جدید: send podcast voice (گفتگوی صوتی تحلیلی و طولانی) ==================
 import wave
 import tempfile
-import os
 from google.genai import types
 
 user_donya_voice_cache = {}
@@ -641,72 +641,54 @@ def save_wav(filename: str, pcm_data: bytes) -> None:
         wf.setsampwidth(2)
         wf.setframerate(24000)
         wf.writeframes(pcm_data)
-def generate_dialogue_from_news(news_summary: str, retry_count=0) -> str:
-    """تولید دیالوگ رسمی و طولانی (حداقل 800 کلمه / 5 دقیقه) با بازتولید خودکار"""
-    
+
+def generate_dialogue_from_news(news_summary: str) -> str:
+    """تولید دیالوگ رسمی و خشک با حداقل 800 کلمه"""
     prompt = f"""
     خبر زیر را تحلیل کن و یک گفتگوی کاملاً رسمی، خشک و بی‌طرفانه بین دو تحلیلگر اقتصادی به نام 'علی' و 'سارا' بنویس.
     
-    دستورالعمل سختگیرانه و عددی:
-    - تعداد دقیق تبادل‌ها: 30 نوبت (یعنی علی 15 بار و سارا 15 بار صحبت کنند).
-    - هر نوبت حداقل 20 کلمه (میانگین 25 کلمه).
-    - کل دیالوگ باید بین 600 تا 800 کلمه باشد.
-    - سبک: کاملاً خبری، بدون احساس، بدون شوخی، بدون تعجب.
-    - هر جمله حاوی داده، رقم، علت‑معلول یا پیش‌بینی محافظه‌کارانه.
-    - از تکرار مطلب پرهیز کن.
+    دستورالعمل عددی:
+    - تعداد تبادل‌ها: 40 نوبت (علی 20 بار، سارا 20 بار)
+    - هر نوبت حداقل 20 کلمه
+    - کل دیالوگ بین 800 تا 1200 کلمه
+    - سبک: کاملاً خبری، بدون احساس، بدون شوخی، بدون تعجب
+    - هر جمله حاوی داده، رقم، علت‑معلول یا پیش‌بینی
     
-    فرمت دقیق (هر خط با "علی:" یا "سارا:" شروع شود):
+    فرمت:
     علی: ...
     سارا: ...
-    علی: ...
-    ... (تا 40 نوبت)
     
     خلاصه خبر:
     {news_summary}
     """
-    
-    try:
-        response = client.models.generate_content(
-            model="gemini-3.1-flash-lite",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=(
-                    "تو یک تحلیلگر اقتصادی بی‌احساس و خشک هستی. "
-                    "فقط اعداد، داده‌ها، روابط علت‑معلولی و پیش‌بینی‌های منطقی. "
-                    "هیچ کلمه عاطفی یا غیررسمی. "
-                    "دقت کن دیالوگ دقیقاً 40 تبادل و حداقل 800 کلمه داشته باشد."
-                ),
-                temperature=0.3  # کاهش خلاقیت برای دقت بیشتر به دستور
-            )
+    response = client.models.generate_content(
+        model="gemini-3.1-flash-lite",
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=(
+                "تو یک تحلیلگر اقتصادی بی‌احساس و خشک هستی. "
+                "فقط اعداد، داده‌ها و روابط علت‑معلولی. "
+                "هیچ کلمه عاطفی یا غیررسمی. "
+                "دقت کن دیالوگ دقیقاً 40 تبادل و حداقل 800 کلمه داشته باشد."
+            ),
+            temperature=0.3
         )
-        dialogue = response.text.strip()
-        
-        # بررسی قالب
-        if "علی:" not in dialogue or "سارا:" not in dialogue:
-            raise ValueError("قالب نامعتبر")
-        
-        word_count = len(dialogue.split())
-        
-        # اگر کمتر از 800 کلمه بود و هنوز retry نکرده‌ایم، دوباره تلاش کن
-        if word_count < 800 and retry_count < 2:
-            # ارسال هشدار به کاربر (اختیاری)
-            print(f"دیالوگ {word_count} کلمه دارد، دوباره تلاش می‌شود... (retry {retry_count+1})")
-            return generate_dialogue_from_news(news_summary, retry_count+1)
-        
-        # اگر باز هم کم بود، یک خطای واضح بده (یا می‌توانی همان را برگردانی)
-        if word_count < 800:
-            raise Exception(f"پس از {retry_count+1} تلاش، دیالوگ فقط {word_count} کلمه دارد (نیاز به حداقل 800)")
-        
-        return dialogue
-        
-    except Exception as e:
-        if retry_count < 2:
-            # در صورت خطای دیگر هم یکبار دیگر امتحان کن
-            return generate_dialogue_from_news(news_summary, retry_count+1)
-        else:
-            raise Exception(f"خطا در تولید دیالوگ: {e}")
+    )
+    dialogue = response.text.strip()
+    if "علی:" not in dialogue or "سارا:" not in dialogue:
+        raise ValueError("قالب دیالوگ نامعتبر")
+    word_count = len(dialogue.split())
+    if word_count < 800:
+        # اگر کمتر از 800 بود، یک بار دیگر تلاش کن (اختیاری)
+        raise ValueError(f"دیالوگ فقط {word_count} کلمه دارد (نیاز به حداقل 800)")
+    return dialogue
 
 def text_to_speech_multi_speaker(dialogue_text: str, output_filename: str) -> str:
+    """تبدیل دیالوگ چندنفره به فایل صوتی"""
+    # محدودیت طول برای جلوگیری از خطا
+    if len(dialogue_text) > 5000:
+        dialogue_text = dialogue_text[:5000]
+    
     multi_speaker_config = types.MultiSpeakerVoiceConfig(
         speaker_voice_configs=[
             types.SpeakerVoiceConfig(
@@ -740,25 +722,63 @@ def text_to_speech_multi_speaker(dialogue_text: str, output_filename: str) -> st
         save_wav(output_filename, audio_data)
         return output_filename
     else:
-        raise Exception("خطا در دریافت داده صوتی از TTS")
+        raise Exception("داده صوتی دریافت نشد")
+
+def process_voice_news(chat_id: int, news_link: str, news_title: str, status_msg_id: int):
+    """پردازش سنگین در یک ترد جداگانه (غیرهمزمان)"""
+    try:
+        # مرحله 1: دریافت متن کامل
+        bot.edit_message_text(f"📢 مرحله 1/4: دریافت متن خبر...", chat_id, status_msg_id)
+        full_text, error = get_donya_full_text(news_link)
+        if error or not full_text:
+            raise Exception(error or "متن خبر دریافت نشد")
+        
+        # مرحله 2: تحلیل با Gemini
+        bot.edit_message_text(f"📢 مرحله 2/4: تحلیل خبر با هوش مصنوعی...", chat_id, status_msg_id)
+        analysis = analyze_with_gemini_podcast(full_text)
+        
+        # مرحله 3: ساخت دیالوگ (طولانی‌ترین مرحله)
+        bot.edit_message_text(f"📢 مرحله 3/4: ساخت گفتگوی تحلیلی (حداقل ۵ دقیقه)...", chat_id, status_msg_id)
+        dialogue = generate_dialogue_from_news(analysis)
+        
+        # مرحله 4: تبدیل به گفتار
+        bot.edit_message_text(f"📢 مرحله 4/4: تبدیل به فایل صوتی...", chat_id, status_msg_id)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+            audio_path = tmp.name
+        text_to_speech_multi_speaker(dialogue, audio_path)
+        
+        # ارسال به کانال
+        caption = f"🎙️ گفتگوی صوتی تحلیلی: {news_title}"
+        with open(audio_path, "rb") as voice_file:
+            bot.send_voice(chat_id=CHANNEL_ID, voice=voice_file, caption=caption)
+        
+        # پاکسازی
+        os.unlink(audio_path)
+        bot.edit_message_text(f"✅ فایل صوتی خبر «{news_title[:50]}...» با موفقیت در کانال ارسال شد.", chat_id, status_msg_id)
+        
+    except Exception as e:
+        error_message = f"❌ خطا در پردازش: {str(e)[:200]}"
+        print(f"Voice processing error: {error_message}")
+        bot.edit_message_text(error_message, chat_id, status_msg_id)
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower() == "send podcast voice")
 def handle_send_podcast_voice(message):
+    """نمایش لیست اخبار برای انتخاب"""
     bot.reply_to(message, "🎙️ در حال دریافت لیست آخرین اخبار از دنیای اقتصاد...")
-
+    
     news_list = get_donya_news_list(limit=8)
     if not news_list:
-        bot.send_message(message.chat.id, "❌ هیچ خبری یافت نشد.")
+        bot.send_message(message.chat.id, "❌ هیچ خبری یافت نشد. لطفاً چند دقیقه دیگر تلاش کنید.")
         return
-
+    
     user_donya_voice_cache[message.chat.id] = news_list
-
+    
     keyboard = InlineKeyboardMarkup(row_width=1)
     for news in news_list:
         short_title = news['title'][:40] + "..." if len(news['title']) > 40 else news['title']
         keyboard.add(InlineKeyboardButton(f"🎧 {short_title}", callback_data=f"donya_voice_select_{news['idx']}"))
     keyboard.add(InlineKeyboardButton("❌ لغو", callback_data="donya_voice_cancel"))
-
+    
     preview_text = "📬 **لیست آخرین اخبار (تبدیل به گفتگوی صوتی تحلیلی - حداقل ۵ دقیقه):**\n\n"
     for news in news_list:
         preview_text += f"🔹 **{news['title']}**\n"
@@ -766,63 +786,47 @@ def handle_send_podcast_voice(message):
             preview_text += f"   {news['preview']}\n"
         preview_text += "\n"
     preview_text += "👇 لطفاً یکی از اخبار را انتخاب کنید."
-
+    
     bot.send_message(message.chat.id, preview_text, reply_markup=keyboard, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("donya_voice_select_"))
 def handle_donya_voice_selection(call):
+    """پاسخ فوری به کلیک و شروع پردازش در پس‌زمینه"""
     try:
         idx = int(call.data.split("_")[3])
         chat_id = call.message.chat.id
-
+        
         news_list = user_donya_voice_cache.get(chat_id)
         if not news_list or idx >= len(news_list):
             bot.answer_callback_query(call.id, "❌ خبر یافت نشد", show_alert=True)
             return
-
+        
         selected_news = news_list[idx]
         news_title = selected_news['title']
         news_link = selected_news['link']
-
-        bot.answer_callback_query(call.id, f"✅ خبر '{news_title[:50]}...' انتخاب شد. در حال پردازش...")
-
+        
+        # پاسخ فوری به تلگرام (جلوگیری از timeout)
+        bot.answer_callback_query(call.id, f"✅ خبر «{news_title[:40]}...» انتخاب شد. ساخت فایل صوتی شروع شد.")
+        
+        # حذف پیام لیست اخبار
         try:
             bot.delete_message(chat_id, call.message.message_id)
         except:
             pass
-
-        status_msg = bot.send_message(chat_id, f"📰 **خبر:** {news_title}\n\n🔄 دریافت متن کامل...")
-
-        full_text, error = get_donya_full_text(news_link)
-        if error or not full_text:
-            bot.edit_message_text(f"❌ {error or 'مشکل در دریافت خبر'}", chat_id, status_msg.message_id)
-            return
-
-        bot.edit_message_text(f"📰 **خبر:** {news_title}\n\n🧠 تحلیل خبر با هوش مصنوعی...", chat_id, status_msg.message_id)
-        analysis = analyze_with_gemini_podcast(full_text)
-
-        bot.edit_message_text(f"📰 **خبر:** {news_title}\n\n⏳ ساخت دیالوگ تحلیلی خشک و رسمی (حداقل ۵ دقیقه)... این فرایند تا ۴۰ ثانیه طول می‌کشد.", chat_id, status_msg.message_id)
-        dialogue = generate_dialogue_from_news(analysis)
-
-        # نمایش تعداد کلمات برای اطمینان
-        word_count = len(dialogue.split())
-        bot.edit_message_text(f"📰 **خبر:** {news_title}\n\n📝 دیالوگ ساخته شد ({word_count} کلمه). 🎤 تبدیل به صدا...", chat_id, status_msg.message_id)
-
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-            audio_path = tmp.name
-        text_to_speech_multi_speaker(dialogue, audio_path)
-
-        caption = f"🎙️ گفتگوی صوتی تحلیلی: {news_title}"
-        with open(audio_path, "rb") as voice_file:
-            bot.send_voice(chat_id=CHANNEL_ID, voice=voice_file, caption=caption)
-
-        os.unlink(audio_path)
-        bot.edit_message_text(f"✅ **گفتگوی صوتی با موفقیت در کانال ارسال شد!**\n\n📰 عنوان: {news_title}\n🔊 طول تقریبی: ۵ تا ۷ دقیقه", chat_id, status_msg.message_id)
-
+        
+        # ارسال پیام وضعیت اولیه
+        status_msg = bot.send_message(chat_id, f"🎙️ در حال ساخت پادکست صوتی برای:\n📰 {news_title}\n\nاین عملیات ممکن است ۲ تا ۵ دقیقه طول بکشد. لطفاً صبر کنید...")
+        
+        # شروع پردازش در یک ترد جداگانه
+        thread = threading.Thread(
+            target=process_voice_news,
+            args=(chat_id, news_link, news_title, status_msg.message_id)
+        )
+        thread.daemon = True
+        thread.start()
+        
     except Exception as e:
-        error_msg = f"❌ خطا: {str(e)[:200]}"
-        bot.edit_message_text(error_msg, call.message.chat.id, status_msg.message_id)
-        bot.answer_callback_query(call.id, error_msg[:50], show_alert=True)
+        bot.answer_callback_query(call.id, f"خطا: {str(e)[:50]}", show_alert=True)
 
 @bot.callback_query_handler(func=lambda call: call.data == "donya_voice_cancel")
 def handle_donya_voice_cancel(call):
