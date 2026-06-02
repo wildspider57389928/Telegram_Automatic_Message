@@ -641,26 +641,30 @@ def save_wav(filename: str, pcm_data: bytes) -> None:
         wf.setsampwidth(2)
         wf.setframerate(24000)
         wf.writeframes(pcm_data)
-
-def generate_dialogue_from_news(news_summary: str) -> str:
-    """تولید دیالوگ رسمی، خشک و طولانی (حداقل ۵ دقیقه) بین علی و سارا"""
+def generate_dialogue_from_news(news_summary: str, retry_count=0) -> str:
+    """تولید دیالوگ رسمی و طولانی (حداقل 800 کلمه / 5 دقیقه) با بازتولید خودکار"""
+    
     prompt = f"""
     خبر زیر را تحلیل کن و یک گفتگوی کاملاً رسمی، خشک و بی‌طرفانه بین دو تحلیلگر اقتصادی به نام 'علی' و 'سارا' بنویس.
     
-    قوانین سختگیرانه:
-    - هیچ احساس، شوخی، تعجب یا عبارت غیررسمی.
-    - هر جمله حاوی داده، آمار، علت‑معلول یا پیش‌بینی محافظه‌کارانه.
-    - حداقل ۳۰ نوبت گفتگو (علی و سارا مجموعاً ۳۰ بار صحبت کنند).
-    - هر نوبت حداقل ۱۵ کلمه (میانگین ۲۰ کلمه).
-    - بدون تکرار مطلب.
+    دستورالعمل سختگیرانه و عددی:
+    - تعداد دقیق تبادل‌ها: 40 نوبت (یعنی علی 20 بار و سارا 20 بار صحبت کنند).
+    - هر نوبت حداقل 20 کلمه (میانگین 25 کلمه).
+    - کل دیالوگ باید بین 800 تا 1200 کلمه باشد.
+    - سبک: کاملاً خبری، بدون احساس، بدون شوخی، بدون تعجب.
+    - هر جمله حاوی داده، رقم، علت‑معلول یا پیش‌بینی محافظه‌کارانه.
+    - از تکرار مطلب پرهیز کن.
     
-    فرمت دقیق:
+    فرمت دقیق (هر خط با "علی:" یا "سارا:" شروع شود):
     علی: ...
     سارا: ...
+    علی: ...
+    ... (تا 40 نوبت)
     
     خلاصه خبر:
     {news_summary}
     """
+    
     try:
         response = client.models.generate_content(
             model="gemini-3.1-flash-lite",
@@ -668,21 +672,39 @@ def generate_dialogue_from_news(news_summary: str) -> str:
             config=types.GenerateContentConfig(
                 system_instruction=(
                     "تو یک تحلیلگر اقتصادی بی‌احساس و خشک هستی. "
-                    "از کلمات عاطفی، تعجبی، طنز و غیررسمی استفاده نکن. "
-                    "فقط بر داده‌ها، ارقام، روابط علت‑معلولی و پیش‌بینی‌های منطقی تأکید کن. "
-                    "دیالوگ باید حداقل ۳۰ تبادل و حداقل ۱۰۰۰ کلمه داشته باشد."
-                )
+                    "فقط اعداد، داده‌ها، روابط علت‑معلولی و پیش‌بینی‌های منطقی. "
+                    "هیچ کلمه عاطفی یا غیررسمی. "
+                    "دقت کن دیالوگ دقیقاً 40 تبادل و حداقل 800 کلمه داشته باشد."
+                ),
+                temperature=0.3  # کاهش خلاقیت برای دقت بیشتر به دستور
             )
         )
         dialogue = response.text.strip()
+        
+        # بررسی قالب
         if "علی:" not in dialogue or "سارا:" not in dialogue:
-            raise ValueError("قالب دیالوگ نامعتبر")
+            raise ValueError("قالب نامعتبر")
+        
         word_count = len(dialogue.split())
+        
+        # اگر کمتر از 800 کلمه بود و هنوز retry نکرده‌ایم، دوباره تلاش کن
+        if word_count < 800 and retry_count < 2:
+            # ارسال هشدار به کاربر (اختیاری)
+            print(f"دیالوگ {word_count} کلمه دارد، دوباره تلاش می‌شود... (retry {retry_count+1})")
+            return generate_dialogue_from_news(news_summary, retry_count+1)
+        
+        # اگر باز هم کم بود، یک خطای واضح بده (یا می‌توانی همان را برگردانی)
         if word_count < 800:
-            raise ValueError(f"دیالوگ فقط {word_count} کلمه دارد (نیاز به حداقل ۸۰۰ کلمه)")
+            raise Exception(f"پس از {retry_count+1} تلاش، دیالوگ فقط {word_count} کلمه دارد (نیاز به حداقل 800)")
+        
         return dialogue
+        
     except Exception as e:
-        raise Exception(f"خطا در تولید دیالوگ: {e}")
+        if retry_count < 2:
+            # در صورت خطای دیگر هم یکبار دیگر امتحان کن
+            return generate_dialogue_from_news(news_summary, retry_count+1)
+        else:
+            raise Exception(f"خطا در تولید دیالوگ: {e}")
 
 def text_to_speech_multi_speaker(dialogue_text: str, output_filename: str) -> str:
     multi_speaker_config = types.MultiSpeakerVoiceConfig(
