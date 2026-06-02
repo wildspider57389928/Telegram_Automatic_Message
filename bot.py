@@ -56,10 +56,6 @@ def download_image(url, filename):
     return False
 
 def analyze_news_with_gemini(description):
-    cache_key = hash(description[:200])
-    if cache_key in preview_cache:
-        return preview_cache[cache_key]["analysis"]
-    
     prompt = f"""
     تو یک خبرنگار حرفه‌ای هستی. متن طولانی خبری زیر را به یک خبر کوتاه و مفید در ۳ تا ۴ پاراگراف تبدیل کن.
 
@@ -135,24 +131,12 @@ def send_news_list_combined(message):
         bot.send_message(message.chat.id, "خبری یافت نشد ❌")
         return
     
-    user_news_cache[message.chat.id] = news_list
+    user_news_cache[message.chat.id] = {
+        "news_list": news_list,
+        "temp_data": {}
+    }
     
     for idx, news in enumerate(news_list):
-        cache_key = hash(news["description"][:200])
-        if cache_key not in preview_cache:
-            title_fa = translator.translate(news["title"])
-            analysis_text = analyze_news_with_gemini(news["description"])
-            caption = f"📢 {title_fa}"
-            full_text = caption + "\n\n" + analysis_text + footer_text
-            
-            preview_cache[cache_key] = {
-                "title_fa": title_fa,
-                "analysis": analysis_text,
-                "caption": caption,
-                "full_text": full_text,
-                "image_url": news["image"]
-            }
-        
         preview = news["description"][:200] + "..."
         text = f"📢 {news['title']}\n🗓 {news['pub_date']}\n\n{preview}"
         
@@ -180,18 +164,36 @@ def handle_destination_selection(call: CallbackQuery):
         target = parts[0]
         idx = int(parts[1])
         
-        news_list = user_news_cache.get(call.message.chat.id)
-        if not news_list or idx >= len(news_list):
+        chat_data = user_news_cache.get(call.message.chat.id)
+        if not chat_data:
+            bot.answer_callback_query(call.id, "خبر یافت نشد ❌", show_alert=True)
+            return
+        
+        news_list = chat_data["news_list"]
+        if idx >= len(news_list):
             bot.answer_callback_query(call.id, "خبر یافت نشد ❌", show_alert=True)
             return
         
         news = news_list[idx]
         cache_key = hash(news["description"][:200])
-        cached = preview_cache.get(cache_key)
         
-        if not cached:
-            bot.answer_callback_query(call.id, "خطا در پردازش خبر ❌", show_alert=True)
-            return
+        # اعلام وضعیت در حال پردازش
+        bot.answer_callback_query(call.id, "🤖 در حال تحلیل خبر با هوش مصنوعی...", show_alert=False)
+        
+        # اگر قبلاً تحلیل نشده، الان انجام بده
+        if cache_key not in preview_cache:
+            title_fa = translator.translate(news["title"])
+            analysis_text = analyze_news_with_gemini(news["description"])
+            
+            preview_cache[cache_key] = {
+                "title_fa": title_fa,
+                "analysis": analysis_text,
+                "caption": f"📢 {title_fa}",
+                "full_text": f"📢 {title_fa}\n\n{analysis_text}{footer_text}",
+                "image_url": news["image"]
+            }
+        
+        cached = preview_cache[cache_key]
         
         preview_text = f"""📋 **پیش‌نمایش خبر برای ارسال به {get_target_name(target)}:**
 
@@ -205,8 +207,17 @@ def handle_destination_selection(call: CallbackQuery):
         cancel_btn = InlineKeyboardButton("❌ لغو", callback_data="cancel_send")
         keyboard.add(confirm_btn, cancel_btn)
         
-        bot.delete_message(call.message.chat.id, call.message.message_id)
+        # پیام قبلی رو پاک کن
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass
         
+        # ذخیره اطلاعات در temp_data
+        chat_data["temp_data"]["selected_target"] = target
+        chat_data["temp_data"]["selected_idx"] = idx
+        
+        # ارسال پیش‌نمایش با عکس (اگه داشته باشه)
         if cached.get('image_url') and cached['image_url']:
             image_path = os.path.join(IMAGES_DIR, f"preview_{idx}.jpg")
             download_image(cached['image_url'], image_path)
@@ -219,9 +230,7 @@ def handle_destination_selection(call: CallbackQuery):
                         reply_markup=keyboard,
                         parse_mode="Markdown"
                     )
-                if call.message.chat.id not in user_news_cache:
-                    user_news_cache[call.message.chat.id] = {}
-                user_news_cache[call.message.chat.id]["preview_image"] = image_path
+                chat_data["temp_data"]["preview_image"] = image_path
             else:
                 bot.send_message(
                     call.message.chat.id,
@@ -237,11 +246,6 @@ def handle_destination_selection(call: CallbackQuery):
                 parse_mode="Markdown"
             )
         
-        if call.message.chat.id not in user_news_cache:
-            user_news_cache[call.message.chat.id] = {}
-        user_news_cache[call.message.chat.id]["selected_target"] = target
-        user_news_cache[call.message.chat.id]["selected_idx"] = idx
-        
         bot.answer_callback_query(call.id)
         
     except Exception as e:
@@ -251,6 +255,13 @@ def handle_destination_selection(call: CallbackQuery):
 @bot.callback_query_handler(func=lambda call: call.data == "cancel_send")
 def cancel_send_handler(call: CallbackQuery):
     try:
+        # حذف تصویر پیش‌نمایش اگر وجود دارد
+        chat_data = user_news_cache.get(call.message.chat.id)
+        if chat_data:
+            preview_image = chat_data["temp_data"].get("preview_image")
+            if preview_image and os.path.exists(preview_image):
+                os.remove(preview_image)
+        
         bot.delete_message(call.message.chat.id, call.message.message_id)
     except:
         pass
@@ -264,12 +275,13 @@ def send_confirmed_news(call: CallbackQuery):
         idx = int(parts[2])
         
         chat_id = call.message.chat.id
-        news_list = user_news_cache.get(chat_id)
+        chat_data = user_news_cache.get(chat_id)
         
-        if not news_list or idx >= len(news_list):
+        if not chat_data or idx >= len(chat_data["news_list"]):
             bot.answer_callback_query(call.id, "خبر یافت نشد ❌", show_alert=True)
             return
         
+        news_list = chat_data["news_list"]
         news = news_list[idx]
         cache_key = hash(news["description"][:200])
         cached = preview_cache.get(cache_key)
@@ -278,6 +290,7 @@ def send_confirmed_news(call: CallbackQuery):
             bot.answer_callback_query(call.id, "خطا در پردازش خبر ❌", show_alert=True)
             return
         
+        # ارسال به مقصد مورد نظر
         image_path = None
         if cached['image_url']:
             image_path = os.path.join(IMAGES_DIR, f"final_{idx}.jpg")
@@ -306,20 +319,21 @@ def send_confirmed_news(call: CallbackQuery):
             except Exception as e:
                 print(f"Bale error: {e}")
         
+        # پاک کردن فایل‌های موقت
         if image_path and os.path.exists(image_path):
             os.remove(image_path)
         
-        preview_image = user_news_cache.get(chat_id, {}).get("preview_image")
+        preview_image = chat_data["temp_data"].get("preview_image")
         if preview_image and os.path.exists(preview_image):
             os.remove(preview_image)
         
-        # حذف پیام پیش‌نمایش
+        # پاک کردن پیام پیش‌نمایش
         try:
             bot.delete_message(chat_id, call.message.message_id)
         except:
             pass
         
-        # نمایش پیام بالای بات
+        # نمایش نتیجه نهایی
         if target == "tg":
             if success_tg:
                 bot.answer_callback_query(call.id, "✅ به تلگرام ارسال شد!", show_alert=True)
@@ -338,7 +352,7 @@ def send_confirmed_news(call: CallbackQuery):
             elif success_bl:
                 bot.answer_callback_query(call.id, "⚠️ فقط بله ارسال شد (تلگرام خطا)", show_alert=True)
             else:
-                bot.answer_callback_query(call.id, "❌ ارسال به هر دو失敗 شد", show_alert=True)
+                bot.answer_callback_query(call.id, "❌ ارسال به هر دو失败 شد", show_alert=True)
         
     except Exception as e:
         print(f"Error in send_confirmed_news: {e}")
