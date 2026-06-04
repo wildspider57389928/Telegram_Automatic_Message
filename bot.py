@@ -598,24 +598,33 @@ def handle_donya_news_selection(call):
             status_msg.message_id
         )
         
+        # ارسال به تلگرام
+        tg_success = False
         try:
-            bot.send_message(
-                chat_id=CHANNEL_ID,
-                text=final_text,
-                parse_mode="Markdown"
-            )
-            bot.edit_message_text(
-                f"✅ **خبر با موفقیت در کانال ارسال شد!**\n\n📰 عنوان: {news_title}",
-                call.message.chat.id,
-                status_msg.message_id
-            )
+            bot.send_message(chat_id=CHANNEL_ID, text=final_text, parse_mode="Markdown")
+            tg_success = True
         except Exception as e:
-            bot.edit_message_text(
-                f"❌ خطا در ارسال به کانال: {str(e)[:200]}",
-                call.message.chat.id,
-                status_msg.message_id
-            )
-            
+            print(f"Telegram send error (Donya): {e}")
+
+        # ارسال به بله
+        bale_success = False
+        try:
+            send_to_bale(final_text, image_path=None)
+            bale_success = True
+        except Exception as e:
+            print(f"Bale send error (Donya): {e}")
+
+        # نتیجه نهایی
+        if tg_success and bale_success:
+            result_text = "✅ خبر با موفقیت به **هر دو پلتفرم** (تلگرام و بله) ارسال شد."
+        elif tg_success:
+            result_text = "⚠️ خبر فقط به **تلگرام** ارسال شد (ارسال به بله با خطا مواجه شد)."
+        elif bale_success:
+            result_text = "⚠️ خبر فقط به **بله** ارسال شد (ارسال به تلگرام با خطا مواجه شد)."
+        else:
+            result_text = "❌ ارسال خبر به هر دو پلتفرم ناموفق بود."
+
+        bot.edit_message_text(f"{result_text}\n\n📰 عنوان: {news_title}", chat_id, status_msg.message_id)    
     except Exception as e:
         bot.answer_callback_query(call.id, f"❌ خطا: {str(e)[:50]}", show_alert=True)
 
