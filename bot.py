@@ -584,7 +584,7 @@ def handle_donya_news_selection(call):
         
         # ========== تغییر اصلی اینجاست ==========
         # ساخت متن نهایی با عنوان در ابتدا (بدون لینک منبع)
-        final_text = f"📰 **{news_title}**\n\n{analysis}"
+        final_text = f"📰 **{news_title}**\n\n{analysis}\n{footer_text}"
         
         # برش به حداکثر طول مجاز تلگرام (4096 کاراکتر)
         MAX_LEN = 4096
@@ -757,7 +757,7 @@ def process_voice_news(chat_id: int, news_link: str, news_title: str, status_msg
         text_to_speech_multi_speaker(dialogue, audio_path)
         
         # ارسال به کانال
-        caption = f"🎙️ گفتگوی صوتی تحلیلی: {news_title}"
+        caption = f"🎙️ گفتگوی صوتی تحلیلی: {news_title}\n{footer_text}"
         with open(audio_path, "rb") as voice_file:
             bot.send_voice(chat_id=CHANNEL_ID, voice=voice_file, caption=caption)
         
