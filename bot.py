@@ -133,7 +133,7 @@ def get_article_full_text(link):
     except Exception as e:
         return None, f"خطا در دریافت خبر: {str(e)[:100]}"
         
-def get_latest_news(limit=10):
+def get_latest_news(limit=15):
     feed = feedparser.parse(RSS_URL)
     news_list = []
     for entry in feed.entries:
