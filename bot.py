@@ -76,31 +76,108 @@ def analyze_news_with_gemini(description):
         return response.text.strip()
     except Exception as e:
         return f"خطا در تحلیل خبر:{e}"
-
+def get_article_full_text(link):
+    """دریافت متن کامل خبر از لینک اصلی و استخراج از div class='columns-holder'"""
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        response = requests.get(link, timeout=15)
+        response.raise_for_status()
+        response.encoding = 'utf-8'
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # پیدا کردن div با کلاس columns-holder
+        columns_holder = soup.find('div', class_='columns-holder')
+        
+        if not columns_holder:
+            # اگر پیدا نشد، fallback به متن RSS
+            return None, "columns-holder پیدا نشد"
+        
+        # حذف عناصر اضافی (تبلیغات، عکس‌ها، ویدیوها)
+        for unwanted in columns_holder.find_all(['script', 'style', 'iframe', 'ins', 'aside']):
+            unwanted.decompose()
+        
+        # حذف عکس‌ها و کپشن‌ها
+        for img in columns_holder.find_all('img'):
+            img.decompose()
+        
+        for figcaption in columns_holder.find_all('figcaption'):
+            figcaption.decompose()
+        
+        # استخراج متن تمیز از پاراگراف‌ها
+        paragraphs = columns_holder.find_all('p')
+        
+        if not paragraphs:
+            return None, "هیچ پاراگرافی در columns-holder یافت نشد"
+        
+        # جمع‌آوری متن پاراگراف‌ها
+        text_parts = []
+        for p in paragraphs:
+            p_text = p.get_text(strip=True)
+            if p_text and len(p_text) > 20:  # حذف پاراگراف‌های خیلی کوتاه
+                text_parts.append(p_text)
+        
+        if not text_parts:
+            return None, "متن معنی‌داری یافت نشد"
+        
+        full_text = " ".join(text_parts)
+        
+        # پاکسازی نهایی
+        import re
+        full_text = re.sub(r'\s+', ' ', full_text).strip()
+        
+        return full_text, None
+        
+    except Exception as e:
+        return None, f"خطا در دریافت خبر: {str(e)[:100]}"
+        
 def get_latest_news(limit=10):
     feed = feedparser.parse(RSS_URL)
     news_list = []
     for entry in feed.entries:
         title = entry.title if "title" in entry else "No Title"
-        description = clean_html(entry.summary if "summary" in entry else "")
-        description = remove_copyright(description)
+        link = entry.link if "link" in entry else None
+        
+        # دریافت متن کامل از لینک خبر
+        full_text, error = None, None
+        if link:
+            full_text, error = get_article_full_text(link)
+        
+        # اگر نتوانستیم متن کامل بگیریم، از خلاصه RSS استفاده می‌کنیم
+        if full_text:
+            description = full_text
+        else:
+            description = clean_html(entry.summary if "summary" in entry else "")
+            description = remove_copyright(description)
+        
+        # محدودیت طول برای جلوگیری از خطا
         if len(description) > 4000:
-            continue
-        description = description[:3900]
+            description = description[:3900]
+        
         pub_date = entry.get("published", "Unknown")
-
+        
+        # استخراج تصویر
         image_url = None
         if "media_content" in entry:
             for media in entry.media_content:
                 if media.get("medium") == "image" and "url" in media:
                     image_url = media["url"]
                     break
-
-        news_list.append({"title": title,"description": description,"image": image_url,"pub_date": pub_date,"link": entry.link})
+        
+        news_list.append({
+            "title": title,
+            "description": description,
+            "image": image_url,
+            "pub_date": pub_date,
+            "link": link
+        })
+        
         if len(news_list) >= limit:
             break
-    return news_list
     
+    return news_list
 def send_to_bale(text, image_path=None):
     try:
         if image_path and os.path.exists(image_path):
