@@ -835,9 +835,14 @@ def process_voice_news(chat_id: int, news_link: str, news_title: str, status_msg
         
         # ارسال به کانال
         caption = f"🎙️ گفتگوی صوتی تحلیلی: {news_title}\n{footer_text}"
-        with open(audio_path, "rb") as voice_file:
-            bot.send_voice(chat_id=CHANNEL_ID, voice=voice_file, caption=caption)
-        
+        with open(audio_path, "rb") as audio_file:
+            bot.send_audio(
+                chat_id=CHANNEL_ID,
+                audio=audio_file,
+                caption=caption,
+                title=f"گفتگوی تحلیلی: {news_title[:50]}",
+                performer="MBB News"
+            )
         # پاکسازی
         os.unlink(audio_path)
         bot.edit_message_text(f"✅ فایل صوتی خبر «{news_title[:50]}...» با موفقیت در کانال ارسال شد.", chat_id, status_msg_id)
