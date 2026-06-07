@@ -734,9 +734,9 @@ def generate_dialogue_from_news(news_summary: str) -> str:
     خبر زیر را تحلیل کن و یک گفتگوی کاملاً رسمی، خشک و بی‌طرفانه بین دو تحلیلگر اقتصادی به نام 'علی' و 'سارا' بنویس.
     
     دستورالعمل عددی:
-    - تعداد تبادل‌ها: 20 نوبت (علی 10 بار، سارا 10 بار)
-    - هر نوبت حداقل 17 کلمه
-    - کل دیالوگ بین 300 تا 400 کلمه
+    - تعداد تبادل‌ها: 40 نوبت (علی 20 بار، سارا 20 بار)
+    - هر نوبت حداقل 15 کلمه
+    - کل دیالوگ بین 600 تا 800 کلمه
     - سبک: کاملاً خبری، بدون احساس، بدون شوخی، بدون تعجب
     - هر جمله حاوی داده، رقم، علت‑معلول یا پیش‌بینی
     
@@ -766,7 +766,7 @@ def generate_dialogue_from_news(news_summary: str) -> str:
     word_count = len(dialogue.split())
     if word_count < 800:
         # اگر کمتر از 800 بود، یک بار دیگر تلاش کن (اختیاری)
-        raise ValueError(f"دیالوگ فقط {word_count} کلمه دارد (نیاز به حداقل 800)")
+        raise ValueError(f"دیالوگ فقط {word_count} کلمه دارد نیاز به حداقل 800 کلمه)")
     return dialogue
 
 def text_to_speech_multi_speaker(dialogue_text: str, output_filename: str) -> str:
