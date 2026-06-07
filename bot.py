@@ -792,7 +792,7 @@ def text_to_speech_multi_speaker(dialogue_text: str, output_filename: str) -> st
         ]
     )
     response = client.models.generate_content(
-        model="gemini-3.1-flash-tts-preview",
+        model="gemini-2.5-flash-preview-tts",
         contents=dialogue_text,
         config=types.GenerateContentConfig(
             response_modalities=["AUDIO"],
