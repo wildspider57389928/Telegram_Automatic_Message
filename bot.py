@@ -158,13 +158,15 @@ def get_latest_news(limit=15):
         
         pub_date = entry.get("published", "Unknown")
         
-        # استخراج تصویر
         image_url = None
-        if "media_content" in entry:
-            for media in entry.media_content:
-                if media.get("medium") == "image" and "url" in media:
-                    image_url = media["url"]
-                    break
+        if hasattr(entry, 'media_thumbnail') and entry.media_thumbnail:
+            thumb = entry.media_thumbnail[0]  # اولین تصویر بندانگشتی
+            if 'url' in thumb:
+                image_url = thumb['url']
+                if not image_url.startswith(('http://', 'https://')):
+                    image_url = 'https://www.engadget.com' + image_url
+
+        
         
         news_list.append({
             "title": title,
