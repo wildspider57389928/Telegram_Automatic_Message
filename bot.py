@@ -845,6 +845,15 @@ def process_voice_news(chat_id: int, news_link: str, news_title: str, status_msg
                 title=f"گفتگوی تحلیلی: {news_title[:50]}",
                 performer="MBB News"
             )
+        try:
+            url = f"https://tapi.bale.ai/bot{BALE_TOKEN}/sendAudio"
+            with open(audio_path, "rb") as audio:
+                files = {"audio": audio}
+                data = {"chat_id": BALE_CHAT_ID, "caption": caption}
+                r = requests.post(url, data=data, files=files, timeout=30)
+                print("Bale audio sent:", r.text)
+        except Exception as e:
+            print(f"خطا در ارسال به بله: {e}")
         # پاکسازی
         os.unlink(audio_path)
         bot.edit_message_text(f"✅ فایل صوتی خبر «{news_title[:50]}...» با موفقیت در کانال ارسال شد.", chat_id, status_msg_id)
