@@ -947,7 +947,7 @@ def webhook():
     return "ok"
 
 if __name__ == "__main__":
-    requests.get(f"https://tapi.bale.ai/bot{TOKEN}/setWebhook?url={WEBHOOK_URL}")
+    requests.get(f"https://tapi.bale.ai/bot{BALE_TOKEN}/setWebhook?url={WEBHOOK_URL}")
     #requests.get(f"https://api.telegram.org/bot{TOKEN}/setWebhook?url={WEBHOOK_URL}")
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
