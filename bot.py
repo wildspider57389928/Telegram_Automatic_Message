@@ -271,7 +271,7 @@ def fetch_techcrunch_news(limit=10):
             "source": "techcrunch"
         })
     return news_list
-def get_latest_news(limit=15):
+def get_latest_news(limit=20):
     """دریافت اخبار ترکیبی از هر دو منبع"""
     # از هر منبع نصف limit بگیر (حداقل 5 تا از هر کدام)
     per_source = max(5, limit // 2)
