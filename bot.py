@@ -132,54 +132,86 @@ def get_article_full_text(link):
         
     except Exception as e:
         return None, f"خطا در دریافت خبر: {str(e)[:100]}"
-        
-def get_latest_news(limit=15):
-    feed = feedparser.parse(RSS_URL)
+def fetch_engadget_news(limit=10):
+    """دریافت اخبار از Engadget"""
+    feed = feedparser.parse("https://www.engadget.com/rss.xml")
     news_list = []
-    for entry in feed.entries:
-        title = entry.title if "title" in entry else "No Title"
-        link = entry.link if "link" in entry else None
+    for entry in feed.entries[:limit]:
+        title = entry.title
+        link = entry.link
         
-        # دریافت متن کامل از لینک خبر
-        full_text, error = None, None
-        if link:
-            full_text, error = get_article_full_text(link)
+        full_text, _ = get_article_full_text(link)  # تابع قبلی Engadget
+        if not full_text:
+            full_text = clean_html(entry.summary) if "summary" in entry else ""
+            full_text = remove_copyright(full_text)
         
-        # اگر نتوانستیم متن کامل بگیریم، از خلاصه RSS استفاده می‌کنیم
-        if full_text:
-            description = full_text
-        else:
-            description = clean_html(entry.summary if "summary" in entry else "")
-            description = remove_copyright(description)
+        # محدودیت طول
+        if len(full_text) > 4000:
+            full_text = full_text[:3900]
         
-        # محدودیت طول برای جلوگیری از خطا
-        if len(description) > 4000:
-            description = description[:3900]
-        
-        pub_date = entry.get("published", "Unknown")
-        
+        # استخراج تصویر
         image_url = None
         if hasattr(entry, 'media_thumbnail') and entry.media_thumbnail:
-            thumb = entry.media_thumbnail[0]  # اولین تصویر بندانگشتی
-            if 'url' in thumb:
-                image_url = thumb['url']
-                if not image_url.startswith(('http://', 'https://')):
-                    image_url = 'https://www.engadget.com' + image_url
-
-        
+            image_url = entry.media_thumbnail[0].get('url')
         
         news_list.append({
             "title": title,
-            "description": description,
+            "description": full_text,
             "image": image_url,
-            "pub_date": pub_date,
-            "link": link
+            "pub_date": entry.get("published", "Unknown"),
+            "link": link,
+            "source": "engadget"
         })
-        
-        if len(news_list) >= limit:
-            break
-    
     return news_list
+
+def fetch_techcrunch_news(limit=10):
+    """دریافت اخبار از TechCrunch"""
+    feed = feedparser.parse("https://techcrunch.com/feed/")
+    news_list = []
+    for entry in feed.entries[:limit]:
+        title = entry.title
+        link = entry.link
+        
+        full_text, _ = get_techcrunch_full_text(link)  # تابع جدید TechCrunch
+        if not full_text:
+            full_text = clean_html(entry.summary) if "summary" in entry else ""
+        
+        if len(full_text) > 4000:
+            full_text = full_text[:3900]
+        
+        # استخراج تصویر
+        image_url = None
+        if hasattr(entry, 'media_thumbnail') and entry.media_thumbnail:
+            image_url = entry.media_thumbnail[0].get('url')
+        elif hasattr(entry, 'media_content') and entry.media_content:
+            for media in entry.media_content:
+                if media.get('medium') == 'image':
+                    image_url = media.get('url')
+                    break
+        
+        news_list.append({
+            "title": title,
+            "description": full_text,
+            "image": image_url,
+            "pub_date": entry.get("published", "Unknown"),
+            "link": link,
+            "source": "techcrunch"
+        })
+    return news_list
+
+def get_latest_news(limit=15):
+    """دریافت اخبار ترکیبی از هر دو منبع"""
+    # از هر منبع نصف limit بگیر (حداقل 5 تا از هر کدام)
+    per_source = max(5, limit // 2)
+    engadget_items = fetch_engadget_news(per_source)
+    techcrunch_items = fetch_techcrunch_news(per_source)
+    
+    # ترکیب و مرتب‌سازی بر اساس تاریخ (جدیدترین اول)
+    all_news = engadget_items + techcrunch_items
+    all_news.sort(key=lambda x: x.get("pub_date", ""), reverse=True)
+    
+    # اگر تعداد بیشتر از limit بود، برش بزن
+    return all_news[:limit]
 def send_to_bale(text, image_path=None):
     try:
         if image_path and os.path.exists(image_path):
