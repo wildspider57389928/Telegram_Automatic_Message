@@ -76,6 +76,43 @@ def analyze_news_with_gemini(description):
         return response.text.strip()
     except Exception as e:
         return f"خطا در تحلیل خبر:{e}"
+def get_techcrunch_full_text(link):
+    """دریافت متن کامل خبر از لینک TechCrunch (از div.wp-block-post-content)"""
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        response = requests.get(link, timeout=15)
+        response.raise_for_status()
+        response.encoding = 'utf-8'
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # پیدا کردن div اصلی محتوا
+        content_div = soup.find('div', class_='wp-block-post-content')
+        if not content_div:
+            content_div = soup.find('div', class_='entry-content')
+        if not content_div:
+            return None, "محتوای خبر یافت نشد"
+        
+        # حذف عناصر اضافی
+        for unwanted in content_div.find_all(['script', 'style', 'iframe', 'ins', 'aside', 'figure']):
+            unwanted.decompose()
+        for img in content_div.find_all('img'):
+            img.decompose()
+        
+        paragraphs = content_div.find_all('p')
+        if not paragraphs:
+            full_text = content_div.get_text(strip=True)
+        else:
+            text_parts = [p.get_text(strip=True) for p in paragraphs if len(p.get_text(strip=True)) > 20]
+            full_text = " ".join(text_parts)
+        
+        if not full_text or len(full_text) < 100:
+            return None, "متن معنی‌داری یافت نشد"
+        
+        import re
+        full_text = re.sub(r'\s+', ' ', full_text).strip()
+        return full_text, None
+    except Exception as e:
+        return None, f"خطا: {str(e)[:100]}"
 def get_article_full_text(link):
     """دریافت متن کامل خبر از لینک اصلی و استخراج از div class='columns-holder'"""
     try:
