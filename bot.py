@@ -76,6 +76,40 @@ def analyze_news_with_gemini(description):
         return response.text.strip()
     except Exception as e:
         return f"خطا در تحلیل خبر:{e}"
+def get_techcrunch_image_from_page(link):
+    """دریافت آدرس عکس اصلی خبر از صفحه TechCrunch (با اولویت 16:9)"""
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        response = requests.get(link, timeout=15, headers=headers)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # روش اول: پیدا کردن figure با کلاس wp-block-post-featured-image
+        featured_figure = soup.find('figure', class_='wp-block-post-featured-image')
+        if featured_figure:
+            img_tag = featured_figure.find('img')
+            if img_tag and img_tag.get('src'):
+                img_url = img_tag['src']
+                # حذف پارامترهای اضافی مثل ?w=1024 برای گرفتن عکس اصلی
+                base_url = img_url.split('?')[0]
+                return base_url
+        
+        # روش دوم: جستجوی متا تگ og:image (پشتیبان)
+        og_image = soup.find("meta", property="og:image")
+        if og_image and og_image.get("content"):
+            return og_image["content"]
+        
+        # روش سوم: اولین عکس بزرگ داخل مقاله
+        article_body = soup.find('div', class_='wp-block-post-content')
+        if article_body:
+            first_img = article_body.find('img')
+            if first_img and first_img.get('src'):
+                return first_img['src']
+        
+        return None
+    except Exception as e:
+        print(f"Error extracting image from page: {e}")
+        return None
 def get_techcrunch_full_text(link):
     """دریافت متن کامل خبر از لینک TechCrunch (از div.wp-block-post-content)"""
     try:
@@ -200,27 +234,29 @@ def fetch_engadget_news(limit=10):
             "source": "engadget"
         })
     return news_list
-
 def fetch_techcrunch_news(limit=10):
-    """دریافت اخبار از TechCrunch"""
+    """دریافت اخبار از TechCrunch با عکس از صفحه خبر"""
     feed = feedparser.parse("https://techcrunch.com/feed/")
     news_list = []
     for entry in feed.entries[:limit]:
         title = entry.title
         link = entry.link
         
-        full_text, _ = get_techcrunch_full_text(link)  # تابع جدید TechCrunch
+        # دریافت متن کامل خبر (همان روش قبلی)
+        full_text, _ = get_techcrunch_full_text(link)
         if not full_text:
             full_text = clean_html(entry.summary) if "summary" in entry else ""
         
         if len(full_text) > 4000:
             full_text = full_text[:3900]
         
-        # استخراج تصویر
-        image_url = None
-        if hasattr(entry, 'media_thumbnail') and entry.media_thumbnail:
+        # دریافت عکس اصلی از صفحه خبر
+        image_url = get_techcrunch_image_from_page(link)
+        
+        # اگر عکس پیدا نشد، سعی کن از روش‌های RSS قدیمی استفاده کنی (اختیاری)
+        if not image_url and hasattr(entry, 'media_thumbnail') and entry.media_thumbnail:
             image_url = entry.media_thumbnail[0].get('url')
-        elif hasattr(entry, 'media_content') and entry.media_content:
+        if not image_url and hasattr(entry, 'media_content') and entry.media_content:
             for media in entry.media_content:
                 if media.get('medium') == 'image':
                     image_url = media.get('url')
@@ -235,7 +271,6 @@ def fetch_techcrunch_news(limit=10):
             "source": "techcrunch"
         })
     return news_list
-
 def get_latest_news(limit=15):
     """دریافت اخبار ترکیبی از هر دو منبع"""
     # از هر منبع نصف limit بگیر (حداقل 5 تا از هر کدام)
